@@ -78,6 +78,15 @@ All notable project changes. Format: Phase — description.
 - Fixed `emailSchema`: trim + lowercase now run before format validation, so `" User@Example.Com "` normalizes instead of being rejected (found by tests).
 - Total: 74 tests passing across unit, integration, and security suites.
 
+## Phase 13 — Deployment preparation
+
+- Initialized git repository (`main`); pre-commit secret scan clean (only CI-throwaway creds and documented dev-seed defaults tracked; `.env*`, generated client, and personal notes excluded).
+- `package.json`: added `postinstall: prisma generate` so installs regenerate the gitignored client.
+- Added `vercel.json`: build command `prisma migrate deploy && next build` (self-migrating deploys).
+- Rewrote `docs/DEPLOYMENT.md` as a concrete go-live runbook: GitHub push steps, database provisioning, per-environment env-var matrix, production admin creation via `npm run create-admin`, pre-launch checklist.
+- Re-ran §128 security audit against a production build: anonymous `/admin/*` → 307; wrong password → generic 401; forged session cookie → no admin data in response (render-time redirect only); `/.env`/`.env.local` → 404; all security headers present; contact honeypot → 422; `/api/health` leaks nothing.
+- Initial commit: `22910f3`.
+
 ---
 
-_Next up: initialize git repository, connect Vercel, provision production database, final Lighthouse + security audit before launch._
+_Next up (manual): push to GitHub, provision prod/preview databases, import repo in Vercel, create production admin, replace placeholder images, run Lighthouse on the live domain._

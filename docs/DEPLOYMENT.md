@@ -20,10 +20,57 @@ Never use the production database for local development.
 
 ## Vercel Deploy
 
-1. Connect GitHub repo to Vercel.
-2. Set env vars per environment (production + preview): `DATABASE_URL`, `AUTH_SECRET`, `EMAIL_API_KEY`, `APP_URL`.
-3. Build command: `npm run build` (runs `prisma generate` + `prisma migrate deploy`).
-4. Promote preview → production after QA.
+### 1. Push to GitHub (manual — gh CLI not installed on this machine)
+
+```powershell
+git remote add origin https://github.com/<your-account>/spice-and-saffron.git
+git push -u origin main
+```
+
+Then on github.com: enable branch protection for `main` (require the CI check), secret scanning, and Dependabot alerts.
+
+### 2. Provision databases
+
+- Production: create a Postgres database (Vercel Postgres / Neon / Supabase). Copy its pooled connection string.
+- Preview: a second database, or branch preview DB if the provider supports it.
+- Never point preview at production data.
+
+### 3. Connect repo in Vercel
+
+1. Import the GitHub repo; framework is auto-detected (Next.js).
+2. `vercel.json` already sets the build command: `prisma migrate deploy && next build`.
+   - `postinstall` runs `prisma generate` automatically (the generated client is gitignored).
+3. Set environment variables **per environment**:
+
+| Variable | Production | Preview |
+|----------|-----------|---------|
+| `DATABASE_URL` | prod DB connection string | preview DB connection string |
+| `AUTH_SECRET` | fresh `openssl rand -base64 32` | separate value |
+| `APP_URL` | `https://<domain>` | preview URL |
+| `EMAIL_API_KEY` | Resend key (optional) | empty or test key |
+
+4. Deploy. First deploy applies migrations to the target DB via the build command.
+
+### 4. Create the production admin
+
+Never reuse dev seed credentials. After the first deploy:
+
+```powershell
+# locally, pointed at the PRODUCTION database URL
+$env:DATABASE_URL="<prod-url>"; $env:ADMIN_EMAIL="owner@cafe.in"; $env:ADMIN_PASSWORD="<generated>"
+npm run create-admin
+```
+
+Then rotate/delete the password from any local shell history.
+
+### 5. Pre-launch checklist
+
+- [ ] Remove demo/seed dishes from production DB (§116) or re-seed with real menu
+- [ ] Replace placeholder images under `public/images/placeholders/`
+- [ ] Verify `/api/health`, sitemap.xml, robots.txt on the live domain
+- [ ] Run Lighthouse (target ≥90 across categories)
+- [ ] Confirm security headers present (`curl -I https://<domain>`)
+- [ ] Enable Vercel Postgres backups (30-day retention) + test one restore
 
 ## Migrations
 
