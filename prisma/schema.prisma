@@ -1,0 +1,181 @@
+// Spice & Saffron — Indian Café
+// Prisma schema. All changes must be migration-based.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+}
+
+enum GalleryCategory {
+  INTERIOR
+  FOOD
+  CHEF
+  EVENTS
+  ATMOSPHERE
+}
+
+enum MessageStatus {
+  NEW
+  READ
+  REPLIED
+  ARCHIVED
+}
+
+enum ActivityAction {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  CREATE
+  UPDATE
+  DELETE
+  PUBLISH
+  UNPUBLISH
+  FEATURE
+  SETTINGS_CHANGED
+  MESSAGE_STATUS_CHANGED
+}
+
+model Admin {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         AdminRole @default(EDITOR)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions    Session[]
+  activityLogs ActivityLog[]
+
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String   @unique
+  adminId   String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  image       String?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  dishes Dish[]
+
+  @@index([sortOrder])
+  @@index([isActive])
+}
+
+model Dish {
+  id               String   @id @default(uuid()) @db.Uuid
+  categoryId       String   @db.Uuid
+  name             String
+  slug             String   @unique
+  shortDescription String
+  description      String
+  price            Decimal  @db.Decimal(10, 2)
+  compareAtPrice   Decimal? @db.Decimal(10, 2)
+  image            String?
+  isFeatured       Boolean  @default(false)
+  isAvailable      Boolean  @default(true)
+  isVegetarian     Boolean  @default(false)
+  isVegan          Boolean  @default(false)
+  isSpicy          Boolean  @default(false)
+  containsNuts     Boolean  @default(false)
+  preparationTime  Int?
+  calories         Int?
+  sortOrder        Int      @default(0)
+  deletedAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([categoryId])
+  @@index([slug])
+  @@index([isAvailable])
+  @@index([isFeatured])
+  @@index([sortOrder])
+  @@index([createdAt])
+}
+
+model GalleryImage {
+  id          String          @id @default(uuid()) @db.Uuid
+  title       String
+  altText     String
+  imageUrl    String
+  category    GalleryCategory @default(ATMOSPHERE)
+  sortOrder   Int             @default(0)
+  isPublished Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([isPublished])
+  @@index([sortOrder])
+}
+
+model ContactMessage {
+  id        String        @id @default(uuid()) @db.Uuid
+  name      String
+  email     String
+  phone     String?
+  subject   String
+  message   String
+  status    MessageStatus @default(NEW)
+  ipHash    String?
+  createdAt DateTime      @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id         String         @id @default(uuid()) @db.Uuid
+  actorId    String?        @db.Uuid
+  action     ActivityAction
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime       @default(now())
+
+  actor Admin? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+model Setting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
