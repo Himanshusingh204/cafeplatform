@@ -64,8 +64,12 @@ Prisma · PostgreSQL · Zod · Argon2id · Server Actions/API routes · GitHub A
 
 ## What is finished?
 
-Tracked phase-by-phase in `docs/CHANGELOG.md`. As of the current build: see CHANGELOG.
+All v1 phases (0–13): public site, admin CMS, authentication, security hardening, performance/caching,
+74 automated tests, CI workflows, deployment runbook. Phase-by-phase detail in `docs/CHANGELOG.md`.
 
 ## What remains?
 
-Reservations, online ordering, payments, QR menus, multi-location — all deliberately out of v1 scope.
+Launch steps needing external accounts (see `docs/DEPLOYMENT.md`): GitHub push, Vercel import,
+production/preview databases, production admin creation, real photography, live-domain Lighthouse.
+
+Deliberately out of v1 scope: reservations, online ordering, payments, QR menus, multi-location.

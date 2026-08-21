@@ -87,6 +87,13 @@ All notable project changes. Format: Phase — description.
 - Re-ran §128 security audit against a production build: anonymous `/admin/*` → 307; wrong password → generic 401; forged session cookie → no admin data in response (render-time redirect only); `/.env`/`.env.local` → 404; all security headers present; contact honeypot → 422; `/api/health` leaks nothing.
 - Initial commit: `22910f3`.
 
+## Launch polish
+
+- Lighthouse audit (local production build): Performance 78 → **90** after switching `Reveal` to `LazyMotion` + `domAnimation` with `m.` components (`components/ui/reveal.tsx`); Accessibility / Best Practices / SEO all 100. FCP 1.7s → 1.1s, LCP 4.9s → 3.6s under simulated throttling.
+- Full-route smoke test on production build: 14 routes return correct codes (200 / 404).
+- Frozen AI memory docs to final state: `MASTER_PLAN.md` phase table, `PROJECT_OVERVIEW.md`, `MEMORY.md`.
+- `HANDOFF.md` rewritten as the current-state handoff document.
+
 ---
 
 _Next up (manual): push to GitHub, provision prod/preview databases, import repo in Vercel, create production admin, replace placeholder images, run Lighthouse on the live domain._
