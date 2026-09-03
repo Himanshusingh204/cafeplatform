@@ -18,7 +18,7 @@
 
 <br />
 
-**[Key Features](#-key-features)** • **[System Architecture](#-system-architecture)** • **[Visual Showcase](#-visual-showcase)** • **[Security Architecture](#-security--data-privacy-architecture)** • **[Database Design](#-database-schema--domain-model)** • **[Getting Started](#-getting-started)** • **[Testing](#-testing--quality-assurance)**
+**[Key Features](#-key-features)** • **[System Architecture](#-system-architecture)** • **[Visual Showcase](#-visual-showcase)** • **[Security Architecture](#-security--data-privacy-architecture)** • **[Database Design](#-database-schema--domain-model)** • **[Getting Started](#-getting-started)** • **[Testing](#-testing--quality-assurance)** • **[V2 Scaling Roadmap](#-v2-milestone--scaling-roadmap-b2b-saas-s2s--websockets)**
 
 </div>
 
@@ -416,6 +416,58 @@ npm run test:e2e
 ├── scripts/                   # Operations & management scripts (admin bootstrap)
 └── tests/                     # Unit, integration & Playwright E2E suites
 ```
+
+---
+
+## 🗺️ V2 Milestone & Scaling Roadmap: B2B SaaS, S2S & WebSockets
+
+While V1 serves as a high-conversion, production-grade single-tenant platform, the architecture has been designed with an evolutionary pathway toward a **Multi-Tenant Enterprise B2B SaaS**:
+
+```mermaid
+flowchart LR
+    subgraph MultiTenant["🏢 Multi-Tenant SaaS Layer"]
+        TenantRouting["Dynamic Subdomain Routing\n(:tenant.platform.com)"]
+        TenantIsolation["Prisma Client Extension\n(Auto-scoped tenantId)"]
+        Billing["Stripe Billing Engine\n(Starter / Pro / Enterprise)"]
+    end
+
+    subgraph S2S["🔌 S2S & M2M Gateway"]
+        ApiKeyGuard["Hashed API Keys (sp_live_...)\nScope & IP Allowlist Guard"]
+        POSSync["POS Ingestion Engine\n(Toast, Square, Petpooja)"]
+        Webhooks["HMAC-SHA256 Dispatcher\n(Exponential Backoff Retries)"]
+    end
+
+    subgraph RealTime["⚡ Real-Time Infrastructure"]
+        WebSocketHub["Redis Pub/Sub + WebSocket Hub\n(Distributed Connection State)"]
+        LiveKDS["Kitchen Display System (KDS)\nZero-latency ticket updates"]
+        LiveTracker["Live Customer Order Progress\n(Bidirectional sync)"]
+    end
+
+    TenantRouting --> TenantIsolation
+    ApiKeyGuard --> POSSync
+    POSSync --> Webhooks
+    WebSocketHub --> LiveKDS
+    WebSocketHub --> LiveTracker
+```
+
+### 1. Multi-Tenant Architecture & Data Isolation
+- **Tenant Entity & RLS**: Introduce a `Tenant` model in PostgreSQL with isolated `tenantId` relational bindings on all tables (`Dish`, `Order`, `Reservation`, `Category`).
+- **Query Auto-Scoping**: Leverage **Prisma 7 Client Extensions** (`$extends`) to enforce automatic `where: { tenantId }` injection across all operations, mathematically eliminating cross-tenant leakage.
+- **Subdomain Routing**: Extend Next.js `proxy.ts` to inspect inbound Host headers (`tenant.domain.com`) and rewrite routes dynamically.
+
+### 2. S2S (Server-to-Server) M2M Authentication & Partner APIs
+- **Cryptographic API Key Management**: Issue scoped API keys (`sp_live_...`) stored exclusively as **SHA-256 hashes** with constant-time verification (`crypto.timingSafeEqual`).
+- **B2B REST Endpoints**: Expose public versioned endpoints (`POST /api/v1/orders`, `GET /api/v1/menu`, `POST /api/v1/reservations`) with strict Zod contracts and OpenAPI 3.0 specifications.
+- **External Integrations**: Pre-built webhooks and endpoints for third-party Point of Sale (POS) hardware (Toast, Square, Petpooja) and delivery marketplaces (Swiggy, Zomato, UberEats).
+
+### 3. Bi-Directional Real-Time WebSockets & Kitchen Display System (KDS)
+- **Redis Pub/Sub Backbone**: Decouple connection state from serverless compute using an **Upstash Redis Pub/Sub** cluster.
+- **Kitchen Display System (KDS)**: Dedicated full-screen kitchen application receiving instant order creations, modifications, and ticket status changes (`PENDING` ➔ `PREPARING` ➔ `READY`) with zero polling overhead.
+- **Live Guest Tracker**: Real-time bidirectional order fulfillment progress for online customers.
+
+### 4. Enterprise Webhook Gateway
+- **Cryptographic Signatures**: Sign all outbound event payloads using **HMAC-SHA256** headers (`X-Signature: t=timestamp,v1=hash`).
+- **Resilient Delivery**: Automatic exponential backoff retries (1m, 5m, 15m, 1h) with dead-letter queue inspection in the admin portal.
 
 ---
 
