@@ -54,9 +54,19 @@ yarn-error.log*
 # Vercel
 .vercel
 
+# AI Agent Tooling & Scratchpad Files (Never Publish to Git)
+.agents/
+.claude/
+.windsurf/
+AGENTS.md
+HANDOFF.md
+skills-lock.json
+/docs/
+
 # TypeScript & Generated code
 *.tsbuildinfo
 next-env.d.ts
 /app/generated/prisma
-/lib/generated/prisma
+/lib/generated/
+lib/generated/
 

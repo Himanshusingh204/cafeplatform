@@ -14,7 +14,7 @@
 
 <br />
 
-<img src="docs/screenshots/banner.jpg" alt="Spice & Saffron Showcase Banner" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.5);" />
+<img src="public/images/screenshots/banner.jpg" alt="Spice & Saffron Showcase Banner" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.5);" />
 
 <br />
 
@@ -41,21 +41,21 @@
 ### 1. Landing & Editorial Experience
 > Hero storytelling with dynamic featured dish showcases, artisan heritage previews, and fluid entrance micro-interactions.
 
-<img src="docs/screenshots/01-home-hero.png" alt="Homepage Hero Preview" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
+<img src="public/images/screenshots/01-home-hero.png" alt="Homepage Hero Preview" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
 
 <br />
 
 ### 2. Interactive Culinary Menu & Filtering
 > Server-rendered menu catalog with real-time dietary filtering, spice level indicators, and instantaneous cart actions.
 
-<img src="docs/screenshots/02-menu-page.png" alt="Culinary Menu" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
+<img src="public/images/screenshots/02-menu-page.png" alt="Culinary Menu" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
 
 <br />
 
 ### 3. Real-Time Table Reservation Engine
 > Interactive booking engine with server-side slot availability validation, guest count allocation, and automated status handling.
 
-<img src="docs/screenshots/03-reservations.png" alt="Table Reservations" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
+<img src="public/images/screenshots/03-reservations.png" alt="Table Reservations" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
 
 <br />
 
@@ -64,7 +64,7 @@
 
 | **Heritage & Story** | **Artisan Photo Gallery** |
 | :---: | :---: |
-| <img src="docs/screenshots/04-about-story.png" alt="About Story" width="100%" style="border-radius: 6px;" /> | <img src="docs/screenshots/05-gallery.png" alt="Gallery Grid" width="100%" style="border-radius: 6px;" /> |
+| <img src="public/images/screenshots/04-about-story.png" alt="About Story" width="100%" style="border-radius: 6px;" /> | <img src="public/images/screenshots/05-gallery.png" alt="Gallery Grid" width="100%" style="border-radius: 6px;" /> |
 
 <br />
 
@@ -73,7 +73,7 @@
 
 | **Contact & Concierge** | **Admin Authentication Portal** |
 | :---: | :---: |
-| <img src="docs/screenshots/06-contact.png" alt="Contact Page" width="100%" style="border-radius: 6px;" /> | <img src="docs/screenshots/07-admin-login.png" alt="Admin Login Portal" width="100%" style="border-radius: 6px;" /> |
+| <img src="public/images/screenshots/06-contact.png" alt="Contact Page" width="100%" style="border-radius: 6px;" /> | <img src="public/images/screenshots/07-admin-login.png" alt="Admin Login Portal" width="100%" style="border-radius: 6px;" /> |
 
 ---
 
@@ -399,19 +399,22 @@ npm run test:e2e
 │   ├── reservations/          # Table booking interactive forms
 │   └── ui/                    # Reusable atomic design primitives (Buttons, Modals, Badges)
 ├── config/                    # Site metadata, limits, navigation, role constants
-├── docs/                      # Technical documentation, API specs & screenshots
-│   └── screenshots/           # High-resolution visual showcase images
+├── hooks/                     # Custom React hooks (cart store, notifications)
 ├── lib/
 │   ├── auth/                  # Argon2id hashing, session token verification, RBAC guards
 │   ├── db/                    # Prisma client singleton instance
+│   ├── email/                 # Transactional email service
 │   ├── rate-limit/            # Token-bucket rate limiter engine
-│   ├── services/              # Encapsulated domain business logic
+│   ├── services/              # Encapsulated domain business logic (menu, orders, reviews)
 │   └── validation/            # Zod validation schemas
 ├── prisma/
 │   ├── migrations/            # Version-controlled SQL migration history
 │   ├── schema.prisma          # Authoritative relational database schema
 │   └── seed.ts                # Database seed script
-└── scripts/                   # Operations & management scripts (admin bootstrap)
+├── public/
+│   └── images/                # Culinary photography, brand assets & screenshots
+├── scripts/                   # Operations & management scripts (admin bootstrap)
+└── tests/                     # Unit, integration & Playwright E2E suites
 ```
 
 ---
