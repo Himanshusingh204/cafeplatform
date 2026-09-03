@@ -72,6 +72,97 @@ export function ScaleOnHover({
   );
 }
 
+export function StaggerContainer({
+  children,
+  staggerDelay = 0.08,
+  className,
+}: {
+  children: React.ReactNode;
+  staggerDelay?: number;
+  className?: string;
+}) {
+  return (
+    <LazyMotion features={domAnimation} strict>
+      <m.div
+        initial="hidden"
+        whileInView="show"
+        viewport={{ once: true, margin: "-40px" }}
+        variants={{
+          hidden: {},
+          show: {
+            transition: {
+              staggerChildren: staggerDelay,
+            },
+          },
+        }}
+        className={className}
+      >
+        {children}
+      </m.div>
+    </LazyMotion>
+  );
+}
+
+export function StaggerItem({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const shouldReduce = useReducedMotion();
+
+  if (shouldReduce) {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <m.div
+      variants={{
+        hidden: { opacity: 0, y: 20, scale: 0.98 },
+        show: {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          transition: {
+            duration: 0.55,
+            ease: [0.16, 1, 0.3, 1],
+          },
+        },
+      }}
+      className={className}
+    >
+      {children}
+    </m.div>
+  );
+}
+
+export function FluidCard({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const shouldReduce = useReducedMotion();
+
+  if (shouldReduce) {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <LazyMotion features={domAnimation} strict>
+      <m.div
+        whileHover={{ y: -4, transition: { duration: 0.25, ease: "easeOut" } }}
+        whileTap={{ scale: 0.985 }}
+        className={className}
+      >
+        {children}
+      </m.div>
+    </LazyMotion>
+  );
+}
+
 export function SlideDrawer({
   isOpen,
   onClose,
@@ -107,7 +198,7 @@ export function SlideDrawer({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+          className="fixed inset-0 bg-black/60 backdrop-blur-md transition-opacity"
         />
 
         {/* Drawer Panel */}
@@ -117,8 +208,8 @@ export function SlideDrawer({
           initial={shouldReduce ? { opacity: 0 } : { x: "100%" }}
           animate={shouldReduce ? { opacity: 1 } : { x: 0 }}
           exit={shouldReduce ? { opacity: 0 } : { x: "100%" }}
-          transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          className="relative z-10 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl"
+          transition={{ type: "spring", damping: 28, stiffness: 280 }}
+          className="relative z-10 flex h-full w-full max-w-md flex-col border-l border-border/70 glass-panel shadow-2xl"
         >
           {children}
         </m.div>

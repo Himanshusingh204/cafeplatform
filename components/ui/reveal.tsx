@@ -8,10 +8,14 @@ import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 export function Reveal({
   children,
   delay = 0,
+  duration = 0.65,
+  direction = "up",
   className,
 }: {
   children: React.ReactNode;
   delay?: number;
+  duration?: number;
+  direction?: "up" | "down" | "left" | "right" | "none";
   className?: string;
 }) {
   const reduce = useReducedMotion();
@@ -20,14 +24,26 @@ export function Reveal({
     return <div className={className}>{children}</div>;
   }
 
+  const offset = {
+    up: { y: 22, x: 0 },
+    down: { y: -22, x: 0 },
+    left: { x: 22, y: 0 },
+    right: { x: -22, y: 0 },
+    none: { x: 0, y: 0 },
+  }[direction];
+
   return (
     <LazyMotion features={domAnimation} strict>
       <m.div
         className={className}
-        initial={{ opacity: 0, y: 24 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-80px" }}
-        transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
+        initial={{ opacity: 0, scale: 0.985, ...offset }}
+        whileInView={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+        viewport={{ once: true, margin: "-60px" }}
+        transition={{
+          duration,
+          delay,
+          ease: [0.16, 1, 0.3, 1],
+        }}
       >
         {children}
       </m.div>

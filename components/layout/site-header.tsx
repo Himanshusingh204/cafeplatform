@@ -35,67 +35,94 @@ export function SiteHeader({
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 glass-nav transition-all duration-300">
       <div className="container-site flex h-16 items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-2.5" aria-label={`${siteName} home`}>
+        <Link href="/" className="group flex items-center gap-2.5 transition-transform duration-200 active:scale-95" aria-label={`${siteName} home`}>
           <LogoMark />
           <Wordmark />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Main navigation">
-          {navigation.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-full px-4 py-2 text-sm font-medium transition-colors hover:bg-muted",
-                isActive(item.href) ? "text-primary" : "text-foreground"
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+        <nav className="relative hidden items-center gap-1 rounded-full border border-border/50 bg-background/50 p-1 backdrop-blur-md md:flex" aria-label="Main navigation">
+          {navigation.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "relative rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-200",
+                  active ? "text-primary font-semibold" : "text-foreground/80 hover:text-foreground"
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="active-nav-indicator"
+                    className="absolute inset-0 rounded-full bg-primary/10 border border-primary/20 shadow-xs"
+                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  />
+                )}
+                <span className="relative z-10">{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="flex items-center gap-2">
           {/* Cart Bag Button */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
             type="button"
             onClick={openCart}
             aria-label="View takeaway bag"
-            className="relative flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-muted active:scale-95"
+            className="relative flex items-center gap-1.5 rounded-full border border-border/70 bg-card/80 px-3.5 py-2 text-xs font-semibold text-foreground shadow-xs backdrop-blur-sm transition-colors hover:bg-muted/80 hover:border-border"
           >
             <ShoppingBag className="h-4 w-4 text-primary" />
             <span className="hidden sm:inline">Bag</span>
             {totalCount > 0 && (
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-xs"
+              >
                 {totalCount}
-              </span>
+              </motion.span>
             )}
-          </button>
+          </motion.button>
 
           <div className="hidden items-center gap-2 md:flex">
-            <a
+            <motion.a
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
               href={`tel:${phone.replace(/\s/g, "")}`}
-              className="flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-xs font-medium transition-colors hover:bg-muted"
+              className="flex items-center gap-2 rounded-full border border-border/70 bg-card/60 px-3.5 py-2 text-xs font-medium text-foreground/90 backdrop-blur-xs transition-colors hover:bg-muted/80"
             >
               <Phone className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
               <span className="hidden lg:inline">{phone}</span>
-            </a>
-            <Link href="/reservations" className={buttonVariants({ size: "sm" })}>
-              Book Table
-            </Link>
+            </motion.a>
+            <motion.div
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            >
+              <Link href="/reservations" className={cn(buttonVariants({ size: "sm" }), "shadow-xs")}>
+                Book Table
+              </Link>
+            </motion.div>
           </div>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.92 }}
             type="button"
-            className="rounded-full p-2 text-foreground transition-colors hover:bg-muted md:hidden"
+            className="rounded-full border border-border/60 bg-card/60 p-2 text-foreground backdrop-blur-sm transition-colors hover:bg-muted md:hidden"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-label={open ? "Close menu" : "Open menu"}
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -105,50 +132,50 @@ export function SiteHeader({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="overflow-hidden border-t border-border bg-background md:hidden"
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden border-t border-border/60 glass-panel md:hidden"
           >
             <nav className="container-site flex flex-col gap-1 py-4" aria-label="Mobile navigation">
               {navigation.map((item, i) => (
                 <motion.div
                   key={item.href}
-                  initial={{ x: -20, opacity: 0 }}
+                  initial={{ x: -16, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.05, duration: 0.2 }}
+                  transition={{ delay: i * 0.04, duration: 0.25, ease: "easeOut" }}
                 >
                   <Link
                     href={item.href}
                     onClick={closeMenu}
                     className={cn(
-                      "rounded-lg px-4 py-3 text-base font-medium transition-colors hover:bg-muted",
-                      isActive(item.href) ? "text-primary" : "text-foreground"
+                      "flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium transition-colors hover:bg-muted/70",
+                      isActive(item.href) ? "bg-primary/10 text-primary font-semibold" : "text-foreground"
                     )}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
                   </Link>
                 </motion.div>
               ))}
               <motion.div
-                initial={{ x: -20, opacity: 0 }}
+                initial={{ x: -16, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: navigation.length * 0.05, duration: 0.2 }}
+                transition={{ delay: navigation.length * 0.04, duration: 0.25 }}
               >
                 <a
                   href={`tel:${phone.replace(/\s/g, "")}`}
-                  className="flex items-center gap-2 rounded-lg px-4 py-3 text-base font-medium text-foreground"
+                  className="flex items-center gap-2 rounded-xl px-4 py-3 text-base font-medium text-foreground transition-colors hover:bg-muted/70"
                 >
-                  <Phone className="h-5 w-5" aria-hidden="true" />
-                  Call us
+                  <Phone className="h-5 w-5 text-primary" aria-hidden="true" />
+                  Call us: {phone}
                 </a>
               </motion.div>
               <motion.div
-                initial={{ x: -20, opacity: 0 }}
+                initial={{ x: -16, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: (navigation.length + 1) * 0.05, duration: 0.2 }}
+                transition={{ delay: (navigation.length + 1) * 0.04, duration: 0.25 }}
                 className="px-4 pt-2"
               >
-                <Link href="/menu" onClick={closeMenu} className={cn(buttonVariants(), "w-full")}>
-                  View Menu
+                <Link href="/reservations" onClick={closeMenu} className={cn(buttonVariants(), "w-full shadow-sm")}>
+                  Book Table
                 </Link>
               </motion.div>
             </nav>
