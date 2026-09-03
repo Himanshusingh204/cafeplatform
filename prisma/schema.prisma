@@ -70,8 +70,42 @@ enum PaymentStatus {
   PAY_AT_PICKUP
 }
 
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum WebhookStatus {
+  SUCCESS
+  FAILED
+}
+
+model Tenant {
+  id               String           @id @default(uuid()) @db.Uuid
+  slug             String           @unique
+  name             String
+  customDomain     String?          @unique
+  subscriptionPlan SubscriptionPlan @default(PRO)
+  isActive         Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  admins           Admin[]
+  categories       Category[]
+  dishes           Dish[]
+  orders           Order[]
+  reservations     Reservation[]
+  apiKeys          ApiKey[]
+  webhookEndpoints WebhookSubscription[]
+
+  @@index([slug])
+  @@index([customDomain])
+}
+
 model Admin {
   id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @db.Uuid
   email        String   @unique
   passwordHash String
   name         String
@@ -81,10 +115,12 @@ model Admin {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions    Session[]
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  sessions     Session[]
   activityLogs ActivityLog[]
 
   @@index([email])
+  @@index([tenantId])
 }
 
 model Session {
@@ -103,6 +139,7 @@ model Session {
 
 model Category {
   id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String?   @db.Uuid
   name        String
   slug        String    @unique
   description String?
@@ -113,14 +150,17 @@ model Category {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  dishes Dish[]
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dishes      Dish[]
 
   @@index([sortOrder])
   @@index([isActive])
+  @@index([tenantId])
 }
 
 model Dish {
   id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String?  @db.Uuid
   categoryId       String   @db.Uuid
   name             String
   slug             String   @unique
@@ -142,7 +182,8 @@ model Dish {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  tenant           Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category         Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@index([categoryId])
   @@index([slug])
@@ -150,6 +191,7 @@ model Dish {
   @@index([isFeatured])
   @@index([sortOrder])
   @@index([createdAt])
+  @@index([tenantId])
 }
 
 model GalleryImage {
@@ -207,6 +249,7 @@ model Setting {
 
 model Reservation {
   id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String?           @db.Uuid
   referenceCode   String            @unique
   name            String
   email           String
@@ -220,13 +263,17 @@ model Reservation {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
+  tenant          Tenant?           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@index([date])
   @@index([status])
   @@index([referenceCode])
+  @@index([tenantId])
 }
 
 model Order {
   id                  String        @id @default(uuid()) @db.Uuid
+  tenantId            String?       @db.Uuid
   orderNumber         String        @unique
   customerName        String
   customerEmail       String
@@ -243,11 +290,13 @@ model Order {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  items OrderItem[]
+  tenant              Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items               OrderItem[]
 
   @@index([orderStatus])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([tenantId])
 }
 
 model OrderItem {
@@ -291,4 +340,56 @@ model Coupon {
 
   @@index([code])
   @@index([isActive])
+}
+
+model ApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  name        String
+  keyPrefix   String
+  keyHash     String    @unique
+  scopes      String[]  @default([])
+  ipAllowlist String[]  @default([])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([keyHash])
+}
+
+model WebhookSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  url       String
+  secret    String
+  events    String[] @default([])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+}
+
+model WebhookDelivery {
+  id             String        @id @default(uuid()) @db.Uuid
+  subscriptionId String        @db.Uuid
+  event          String
+  payload        Json
+  responseCode   Int?
+  status         WebhookStatus @default(SUCCESS)
+  attempts       Int           @default(1)
+  error          String?
+  createdAt      DateTime      @default(now())
+
+  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([createdAt])
 }

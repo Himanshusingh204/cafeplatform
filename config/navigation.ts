@@ -10,12 +10,14 @@ export const navigation = [
 
 export const adminNavigation = [
   { label: "Dashboard", href: "/admin" },
+  { label: "Kitchen Display (KDS)", href: "/admin/kds" },
   { label: "Reservations", href: "/admin/reservations" },
   { label: "Takeaway Orders", href: "/admin/orders" },
   { label: "Dishes", href: "/admin/dishes" },
   { label: "Categories", href: "/admin/categories" },
   { label: "Reviews", href: "/admin/reviews" },
   { label: "Gallery", href: "/admin/gallery" },
+  { label: "Developers & S2S", href: "/admin/developers" },
   { label: "Messages", href: "/admin/messages" },
   { label: "Settings", href: "/admin/settings" },
   { label: "Activity", href: "/admin/activity" },

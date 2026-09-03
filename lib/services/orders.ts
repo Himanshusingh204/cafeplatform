@@ -2,6 +2,8 @@ import "server-only";
 
 import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
+import { broadcastEvent } from "@/lib/realtime/bus";
+import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
 import type { OrderStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 
 export interface OrderItemInput {
@@ -118,6 +120,33 @@ export async function createOrder(input: CreateOrderInput) {
     },
   });
 
+  const tenantId = order.tenantId || "spice-saffron";
+  broadcastEvent({
+    type: "order:created",
+    tenantId,
+    timestamp: new Date().toISOString(),
+    data: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      total: Number(order.total),
+      pickupTime: order.pickupTime,
+      items: order.items,
+    },
+  });
+
+  dispatchWebhook({
+    event: "order.created",
+    tenantId,
+    data: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      total: Number(order.total),
+      customerName: order.customerName,
+      pickupTime: order.pickupTime,
+    },
+  }).catch(() => {});
+
   return order;
 }
 
@@ -193,6 +222,28 @@ export async function updateOrderStatus(
     entityId: id,
     metadata: { newStatus: status, orderNumber: updated.orderNumber },
   });
+
+  const tenantId = updated.tenantId || "spice-saffron";
+  broadcastEvent({
+    type: "order:status_changed",
+    tenantId,
+    timestamp: new Date().toISOString(),
+    data: {
+      id: updated.id,
+      orderNumber: updated.orderNumber,
+      orderStatus: updated.orderStatus,
+    },
+  });
+
+  dispatchWebhook({
+    event: "order.status_changed",
+    tenantId,
+    data: {
+      id: updated.id,
+      orderNumber: updated.orderNumber,
+      orderStatus: updated.orderStatus,
+    },
+  }).catch(() => {});
 
   return updated;
 }

@@ -419,55 +419,59 @@ npm run test:e2e
 
 ---
 
-## 🗺️ V2 Milestone & Scaling Roadmap: B2B SaaS, S2S & WebSockets
+## 🚀 Enterprise B2B SaaS, S2S M2M Gateway & Real-Time WebSockets (Implemented)
 
-While V1 serves as a high-conversion, production-grade single-tenant platform, the architecture has been designed with an evolutionary pathway toward a **Multi-Tenant Enterprise B2B SaaS**:
+The platform includes a production-grade **Multi-Tenant Enterprise B2B SaaS layer**, **Machine-to-Machine S2S API Engine**, **Cryptographic Webhook Dispatcher**, and **Real-Time Kitchen Display System (KDS)**:
 
 ```mermaid
 flowchart LR
     subgraph MultiTenant["🏢 Multi-Tenant SaaS Layer"]
-        TenantRouting["Dynamic Subdomain Routing\n(:tenant.platform.com)"]
-        TenantIsolation["Prisma Client Extension\n(Auto-scoped tenantId)"]
-        Billing["Stripe Billing Engine\n(Starter / Pro / Enterprise)"]
+        TenantRouting["Dynamic Subdomain & Tenant Resolver\n(lib/db/tenant.ts)"]
+        TenantIsolation["Tenant-Isolated Relational Models\n(Tenant -> Dishes/Orders)"]
+        AdminPortal["Developer Portal\n(/admin/developers)"]
     end
 
     subgraph S2S["🔌 S2S & M2M Gateway"]
-        ApiKeyGuard["Hashed API Keys (sp_live_...)\nScope & IP Allowlist Guard"]
-        POSSync["POS Ingestion Engine\n(Toast, Square, Petpooja)"]
-        Webhooks["HMAC-SHA256 Dispatcher\n(Exponential Backoff Retries)"]
+        ApiKeyGuard["Hashed API Keys (sp_live_...)\nSHA-256 Constant-Time Guard"]
+        B2BEndpoints["Versioned REST Endpoints\n(/api/v1/menu, /orders, /reservations)"]
+        Webhooks["HMAC-SHA256 Dispatcher\n(X-Spice-Signature)"]
     end
 
     subgraph RealTime["⚡ Real-Time Infrastructure"]
-        WebSocketHub["Redis Pub/Sub + WebSocket Hub\n(Distributed Connection State)"]
-        LiveKDS["Kitchen Display System (KDS)\nZero-latency ticket updates"]
-        LiveTracker["Live Customer Order Progress\n(Bidirectional sync)"]
+        WebSocketHub["Centralized Real-Time Event Bus\n(lib/realtime/bus.ts)"]
+        LiveKDS["Kitchen Display System (KDS)\n(/admin/kds board)"]
+        StreamEndpoint["Authenticated Stream\n(/api/v1/realtime/kds)"]
     end
 
     TenantRouting --> TenantIsolation
-    ApiKeyGuard --> POSSync
-    POSSync --> Webhooks
+    ApiKeyGuard --> B2BEndpoints
+    B2BEndpoints --> Webhooks
     WebSocketHub --> LiveKDS
-    WebSocketHub --> LiveTracker
+    WebSocketHub --> StreamEndpoint
 ```
 
 ### 1. Multi-Tenant Architecture & Data Isolation
-- **Tenant Entity & RLS**: Introduce a `Tenant` model in PostgreSQL with isolated `tenantId` relational bindings on all tables (`Dish`, `Order`, `Reservation`, `Category`).
-- **Query Auto-Scoping**: Leverage **Prisma 7 Client Extensions** (`$extends`) to enforce automatic `where: { tenantId }` injection across all operations, mathematically eliminating cross-tenant leakage.
-- **Subdomain Routing**: Extend Next.js `proxy.ts` to inspect inbound Host headers (`tenant.domain.com`) and rewrite routes dynamically.
+- **Tenant Entity**: PostgreSQL `Tenant` model with isolated relational bindings on `Dish`, `Order`, `Reservation`, `Category`, `Admin`, `ApiKey`, and `WebhookSubscription`.
+- **Tenant Resolution**: Intelligent fallback and auto-scoping (`lib/db/tenant.ts`) ensuring existing single-tenant routes function seamlessly while enabling multi-tenant scaling.
 
 ### 2. S2S (Server-to-Server) M2M Authentication & Partner APIs
-- **Cryptographic API Key Management**: Issue scoped API keys (`sp_live_...`) stored exclusively as **SHA-256 hashes** with constant-time verification (`crypto.timingSafeEqual`).
-- **B2B REST Endpoints**: Expose public versioned endpoints (`POST /api/v1/orders`, `GET /api/v1/menu`, `POST /api/v1/reservations`) with strict Zod contracts and OpenAPI 3.0 specifications.
-- **External Integrations**: Pre-built webhooks and endpoints for third-party Point of Sale (POS) hardware (Toast, Square, Petpooja) and delivery marketplaces (Swiggy, Zomato, UberEats).
+- **Cryptographic API Key Management**: Scoped API keys (`sp_live_...`) stored exclusively as **SHA-256 hashes** and verified in constant time (`crypto.timingSafeEqual`) to prevent timing attacks.
+- **Granular Permissions Scopes**: API keys are restricted by scopes (`orders:read`, `orders:write`, `menu:read`, `reservations:read`, `reservations:write`, `kds:stream`, `admin:all`).
+- **Versioned B2B Endpoints**:
+  - `GET /api/v1/menu`: Sync real-time categorized menu catalog with external POS or digital menu boards.
+  - `POST /api/v1/orders`: Ingest external orders from POS hardware or third-party delivery aggregators (Toast, Swiggy, Zomato).
+  - `GET /api/v1/orders/:id` & `PATCH /api/v1/orders/:id`: Query and advance order lifecycle states (`CONFIRMED` ➔ `PREPARING` ➔ `READY` ➔ `COMPLETED`).
+  - `GET /api/v1/reservations` & `POST /api/v1/reservations`: Ingest partner and concierge bookings.
 
 ### 3. Bi-Directional Real-Time WebSockets & Kitchen Display System (KDS)
-- **Redis Pub/Sub Backbone**: Decouple connection state from serverless compute using an **Upstash Redis Pub/Sub** cluster.
-- **Kitchen Display System (KDS)**: Dedicated full-screen kitchen application receiving instant order creations, modifications, and ticket status changes (`PENDING` ➔ `PREPARING` ➔ `READY`) with zero polling overhead.
-- **Live Guest Tracker**: Real-time bidirectional order fulfillment progress for online customers.
+- **Centralized Event Bus**: Real-time pub/sub bus (`lib/realtime/bus.ts`) dispatching instant order updates across the platform.
+- **Kitchen Display System (KDS)**: Dedicated full-screen kitchen monitor dashboard at [`/admin/kds`](/admin/kds) with live drag-and-drop/advance columns (`New Orders` ➔ `In Preparation` ➔ `Ready for Pass` ➔ `Completed`), audio chime triggers, and live elapsed timers with zero page reloads.
+- **Real-Time Stream**: Authenticated SSE/WebSocket stream at `/api/v1/realtime/kds` supporting persistent hardware displays and kitchen tablets.
 
 ### 4. Enterprise Webhook Gateway
-- **Cryptographic Signatures**: Sign all outbound event payloads using **HMAC-SHA256** headers (`X-Signature: t=timestamp,v1=hash`).
-- **Resilient Delivery**: Automatic exponential backoff retries (1m, 5m, 15m, 1h) with dead-letter queue inspection in the admin portal.
+- **Cryptographic Signatures**: All outbound event payloads are signed using **HMAC-SHA256** headers (`X-Spice-Signature: t=timestamp,v1=hash`).
+- **Delivery Audit Trail**: Every webhook attempt, response code, and delivery status is tracked in the `WebhookDelivery` database audit table.
+- **Partner Ingress**: Inbound webhook endpoint at `/api/v1/webhooks/ingress` with signature validation for delivery and payment lifecycle events.
 
 ---
 
