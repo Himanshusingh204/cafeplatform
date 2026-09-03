@@ -26,6 +26,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/indian_cafe?schema=public
       AUTH_SECRET: ci-only-secret-never-used-in-production
       APP_URL: http://localhost:3000
+      SEED_DEMO_DATA: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +80,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/indian_cafe?schema=public
       AUTH_SECRET: ci-only-secret-never-used-in-production
       APP_URL: http://localhost:3100
+      SEED_DEMO_DATA: "true"
     steps:
       - uses: actions/checkout@v4
 

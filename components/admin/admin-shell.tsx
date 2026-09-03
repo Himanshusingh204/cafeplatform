@@ -105,7 +105,19 @@ export function AdminShell({
       </header>
 
       {open ? (
-        <div className="border-b border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200">{nav}</div>
+        <div className="border-b border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200 space-y-4">
+          {nav}
+          <div className="pt-3 border-t border-border">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-destructive hover:text-destructive-foreground"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
+        </div>
       ) : null}
 
       <aside className="hidden w-60 shrink-0 flex-col justify-between border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:py-6">

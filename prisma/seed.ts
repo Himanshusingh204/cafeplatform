@@ -67,8 +67,11 @@ async function main() {
   }
   console.log("Settings seeded.");
 
-  // Demo data is only seeded when SEED_DEMO_DATA=true (development only)
-  const seedDemoData = process.env.SEED_DEMO_DATA === "true";
+  // Demo data is seeded when SEED_DEMO_DATA=true, in CI, or in development
+  const seedDemoData =
+    process.env.SEED_DEMO_DATA === "true" ||
+    Boolean(process.env.CI) ||
+    process.env.NODE_ENV !== "production";
   if (!seedDemoData) {
     console.log("Demo data seeding skipped (set SEED_DEMO_DATA=true to include demo data).");
     console.log("Seed complete.");

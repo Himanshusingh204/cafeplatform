@@ -123,7 +123,14 @@ export function ContactForm() {
     setErrors(allErrors);
 
     const hasErrors = Object.values(allErrors).some(Boolean);
-    if (hasErrors) return;
+    if (hasErrors) {
+      if (allErrors.name) document.getElementById("contact-name")?.focus();
+      else if (allErrors.email) document.getElementById("contact-email")?.focus();
+      else if (allErrors.phone) document.getElementById("contact-phone")?.focus();
+      else if (allErrors.subject) document.getElementById("contact-subject")?.focus();
+      else if (allErrors.message) document.getElementById("contact-message")?.focus();
+      return;
+    }
 
     setStatus("sending");
     setErrorMessage(null);

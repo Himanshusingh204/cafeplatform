@@ -114,7 +114,7 @@ export default async function AdminDashboardPage() {
       color: "text-primary",
     },
     {
-      label: "Categories",
+      label: "Active Categories",
       value: stats.activeCategories,
       subtext: "Menu sections",
       icon: FolderOpen,

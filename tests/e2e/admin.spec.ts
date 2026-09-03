@@ -97,6 +97,10 @@ test.describe("admin management flows", () => {
     await expect(page.getByRole("heading", { name: categoryName })).toHaveCount(0);
 
     // Sign out returns to the login screen and clears access.
+    const mobileMenu = page.getByRole("button", { name: "Open menu" });
+    if (await mobileMenu.isVisible()) {
+      await mobileMenu.click();
+    }
     await page.getByRole("button", { name: "Sign out" }).first().click();
     await expect(page).toHaveURL(/\/admin\/login$/);
 

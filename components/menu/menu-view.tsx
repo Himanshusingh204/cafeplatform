@@ -186,7 +186,7 @@ export function MenuView({ categories }: MenuViewProps) {
 
       {/* Category Jump Anchors */}
       {!query && (
-        <nav aria-label="Menu category jumps" className="flex flex-wrap gap-2">
+        <nav aria-label="Menu categories" className="flex flex-wrap gap-2">
           {categories.map((category) => (
             <a
               key={category.id}

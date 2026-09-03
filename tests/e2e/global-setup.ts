@@ -28,7 +28,7 @@ export default async function globalSetup() {
   }
 
   const testDbUrl = toTestDatabaseUrl(sourceUrl);
-  const env = { ...process.env, DATABASE_URL: testDbUrl };
+  const env = { ...process.env, DATABASE_URL: testDbUrl, SEED_DEMO_DATA: "true" };
 
   execSync("npx prisma migrate deploy", { env, stdio: "inherit" });
   execSync("npx prisma db seed", { env, stdio: "inherit" });
