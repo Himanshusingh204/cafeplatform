@@ -35,7 +35,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const schema = {
     "@context": "https://schema.org",
     "@type": "Restaurant",

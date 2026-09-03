@@ -4,7 +4,11 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { CartProvider } from "@/hooks/use-cart";
 import { CartDrawer } from "@/components/cart/cart-drawer";
 
-export default async function PublicLayout({ children }: LayoutProps<"/">) {
+export default async function PublicLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const settings = await getSettings();
 
   return (

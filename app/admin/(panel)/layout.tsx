@@ -10,7 +10,11 @@ export const metadata: Metadata = {
 // Auth-gated area: never prerender, always verify the session per request.
 export const dynamic = "force-dynamic";
 
-export default async function AdminPanelLayout({ children }: LayoutProps<"/admin">) {
+export default async function AdminPanelLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const admin = await requireAdmin();
 
   return (
