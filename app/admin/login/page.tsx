@@ -15,7 +15,7 @@ export default async function AdminLoginPage() {
   if (session) redirect("/admin");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-muted px-4">
       <LoginForm />
     </div>
   );

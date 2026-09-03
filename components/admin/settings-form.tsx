@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { updateSettingsAction } from "@/app/admin/actions/messages";
+import { updateSettingsAction } from "@/app/admin/actions/settings";
 
 export interface SettingsValues {
   cafeName: string;

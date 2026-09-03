@@ -229,7 +229,7 @@ export function CategoryManager({
             </p>
           ) : null}
 
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
+          <div className="sticky bottom-0 -mx-6 mt-6 flex justify-end gap-3 border-t border-border bg-card px-6 py-4">
             <Button
               type="button"
               variant="outline"

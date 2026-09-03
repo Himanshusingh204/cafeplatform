@@ -31,9 +31,19 @@ Then on github.com: enable branch protection for `main` (require the CI check), 
 
 ### 2. Provision databases
 
-- Production: create a Postgres database (Vercel Postgres / Neon / Supabase). Copy its pooled connection string.
-- Preview: a second database, or branch preview DB if the provider supports it.
-- Never point preview at production data.
+**Recommended providers** (any PostgreSQL-compatible works):
+
+| Provider | Free Tier | Best For |
+|----------|-----------|----------|
+| Vercel Postgres | 256 MB | Seamless Vercel integration |
+| Neon | 512 MB | Branching, generous free tier |
+| Supabase | 500 MB | Full Postgres + dashboard |
+
+**Steps:**
+1. Create a database on your chosen provider.
+2. Copy the **pooled** connection string (uses port 5432 with PgBouncer).
+3. For preview: create a second database, or use Neon's branching feature.
+4. Never point preview at production data.
 
 ### 3. Connect repo in Vercel
 
@@ -48,6 +58,12 @@ Then on github.com: enable branch protection for `main` (require the CI check), 
 | `AUTH_SECRET` | fresh `openssl rand -base64 32` | separate value |
 | `APP_URL` | `https://<domain>` | preview URL |
 | `EMAIL_API_KEY` | Resend key (optional) | empty or test key |
+| `CONTACT_NOTIFY_EMAIL` | owner inbox (required to enable email) | empty |
+| `EMAIL_FROM_ADDRESS` | verified sender (optional; defaults to Resend test sender) | empty |
+
+Contact email notifications send only when **both** `EMAIL_API_KEY` and `CONTACT_NOTIFY_EMAIL`
+are set; the site works without them (messages still store + appear in admin). Verify your
+sending domain in Resend before production, or replies may be restricted.
 
 4. Deploy. First deploy applies migrations to the target DB via the build command.
 
@@ -83,6 +99,8 @@ Then rotate/delete the password from any local shell history.
 - `DATABASE_URL` — PostgreSQL connection (server only)
 - `AUTH_SECRET` — signing/encryption secret (server only)
 - `EMAIL_API_KEY` — Resend (optional; contact notification)
+- `CONTACT_NOTIFY_EMAIL` — owner inbox for new-message alerts (enables email with `EMAIL_API_KEY`)
+- `EMAIL_FROM_ADDRESS` — optional verified sender override
 - `STORAGE_*` — Vercel Blob / S3-compatible (server only)
 - `APP_URL` — canonical site URL
 - `NODE_ENV` — set by platform

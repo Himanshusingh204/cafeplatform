@@ -4,7 +4,6 @@ import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db/prisma";
 import { ensureUniqueSlug, slugify } from "@/lib/utils/slugify";
 import { logAction } from "@/lib/services/audit";
-import type { Dish, Category } from "@/lib/generated/prisma/client";
 
 // ---------------------------------------------------------------------------
 // Public queries (cached with revalidation tag "menu")
@@ -38,7 +37,25 @@ export interface PublicCategory {
   dishes: PublicDish[];
 }
 
-function toPublicDish(dish: Dish): PublicDish {
+type DishSelect = {
+  id: string;
+  name: string;
+  slug: string;
+  shortDescription: string;
+  description: string;
+  price: { toString(): string };
+  compareAtPrice: { toString(): string } | null;
+  image: string | null;
+  isFeatured: boolean;
+  isVegetarian: boolean;
+  isVegan: boolean;
+  isSpicy: boolean;
+  containsNuts: boolean;
+  preparationTime: number | null;
+  calories: number | null;
+};
+
+function toPublicDish(dish: DishSelect): PublicDish {
   return {
     id: dish.id,
     name: dish.name,
@@ -59,26 +76,48 @@ function toPublicDish(dish: Dish): PublicDish {
 }
 
 async function fetchMenu(): Promise<PublicCategory[]> {
-  const categories = await db.category.findMany({
-    where: { isActive: true, deletedAt: null },
-    orderBy: { sortOrder: "asc" },
-    include: {
-      dishes: {
-        where: { isAvailable: true, deletedAt: null },
-        orderBy: { sortOrder: "asc" },
+  try {
+    const categories = await db.category.findMany({
+      where: { isActive: true, deletedAt: null },
+      orderBy: { sortOrder: "asc" },
+      include: {
+        dishes: {
+          where: { isAvailable: true, deletedAt: null },
+          orderBy: { sortOrder: "asc" },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            shortDescription: true,
+            description: true,
+            price: true,
+            compareAtPrice: true,
+            image: true,
+            isFeatured: true,
+            isVegetarian: true,
+            isVegan: true,
+            isSpicy: true,
+            containsNuts: true,
+            preparationTime: true,
+            calories: true,
+          },
+        },
       },
-    },
-  });
+    });
 
-  return categories.map((category) => ({
-    id: category.id,
-    name: category.name,
-    slug: category.slug,
-    description: category.description,
-    image: category.image,
-    sortOrder: category.sortOrder,
-    dishes: category.dishes.map(toPublicDish),
-  }));
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      description: category.description,
+      image: category.image,
+      sortOrder: category.sortOrder,
+      dishes: category.dishes.map(toPublicDish),
+    }));
+  } catch (error) {
+    console.error("fetchMenu: database query failed, returning fallback empty list", error);
+    return [];
+  }
 }
 
 export const getMenuCached = unstable_cache(fetchMenu, ["menu"], {
@@ -91,14 +130,95 @@ export async function getMenu(): Promise<PublicCategory[]> {
 }
 
 export async function getDishBySlugCached(slug: string) {
-  const menu = await getMenuCached();
-  for (const category of menu) {
-    const dish = category.dishes.find((d) => d.slug === slug);
-    if (dish) {
-      return { ...dish, categoryName: category.name, categorySlug: category.slug };
-    }
+  try {
+    const dish = await db.dish.findFirst({
+      where: { slug, isAvailable: true, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        shortDescription: true,
+        description: true,
+        price: true,
+        compareAtPrice: true,
+        image: true,
+        isFeatured: true,
+        isVegetarian: true,
+        isVegan: true,
+        isSpicy: true,
+        containsNuts: true,
+        preparationTime: true,
+        calories: true,
+        category: { select: { name: true, slug: true } },
+      },
+    });
+
+    if (!dish) return null;
+
+    return {
+      id: dish.id,
+      name: dish.name,
+      slug: dish.slug,
+      shortDescription: dish.shortDescription,
+      description: dish.description,
+      price: Number(dish.price),
+      compareAtPrice: dish.compareAtPrice === null ? null : Number(dish.compareAtPrice),
+      image: dish.image,
+      isFeatured: dish.isFeatured,
+      isVegetarian: dish.isVegetarian,
+      isVegan: dish.isVegan,
+      isSpicy: dish.isSpicy,
+      containsNuts: dish.containsNuts,
+      preparationTime: dish.preparationTime,
+      calories: dish.calories,
+      categoryName: dish.category.name,
+      categorySlug: dish.category.slug,
+    };
+  } catch (error) {
+    console.error("getDishBySlug: database query failed", error);
+    return null;
   }
-  return null;
+}
+
+export async function getRelatedDishes(categorySlug: string, currentSlug: string, limit = 3): Promise<PublicDish[]> {
+  try {
+    const category = await db.category.findUnique({
+      where: { slug: categorySlug, isActive: true, deletedAt: null },
+      include: {
+        dishes: {
+          where: {
+            slug: { not: currentSlug },
+            isAvailable: true,
+            deletedAt: null,
+          },
+          orderBy: { isFeatured: "desc" },
+          take: limit,
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            shortDescription: true,
+            description: true,
+            price: true,
+            compareAtPrice: true,
+            image: true,
+            isFeatured: true,
+            isVegetarian: true,
+            isVegan: true,
+            isSpicy: true,
+            containsNuts: true,
+            preparationTime: true,
+            calories: true,
+          },
+        },
+      },
+    });
+
+    if (!category) return [];
+    return category.dishes.map(toPublicDish);
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,13 +226,17 @@ export async function getDishBySlugCached(slug: string) {
 // ---------------------------------------------------------------------------
 
 export async function listCategoriesAdmin() {
-  return db.category.findMany({
-    where: { deletedAt: null },
-    orderBy: { sortOrder: "asc" },
-    include: {
-      _count: { select: { dishes: { where: { deletedAt: null } } } },
-    },
-  });
+  try {
+    return await db.category.findMany({
+      where: { deletedAt: null },
+      orderBy: { sortOrder: "asc" },
+      include: {
+        _count: { select: { dishes: { where: { deletedAt: null } } } },
+      },
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function listDishesAdmin(input: {
@@ -155,10 +279,6 @@ export async function listDishesAdmin(input: {
 
 export async function getDishAdmin(id: string) {
   return db.dish.findFirst({ where: { id, deletedAt: null } });
-}
-
-export async function getCategoryAdmin(id: string) {
-  return db.category.findFirst({ where: { id, deletedAt: null } });
 }
 
 // ---------------------------------------------------------------------------
@@ -495,5 +615,3 @@ async function getExistingSlugs(model: "dish" | "category", prefix: string): Pro
       : await db.category.findMany({ where, select });
   return rows.map((r) => r.slug);
 }
-
-export type { Category, Dish };

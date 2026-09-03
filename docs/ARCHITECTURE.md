@@ -27,7 +27,7 @@ authentication → authorization → rate limiting → validation → business l
 app/
   (public)/            # Public pages group
   admin/               # Admin route group (server-protected)
-  api/                 # Route handlers (auth, health, contact)
+  api/                 # Route handlers (auth, health, contact, notifications)
   error.tsx            # Root error boundary
   not-found.tsx        # 404
   loading.tsx          # Root loading
@@ -39,7 +39,7 @@ components/
   layout/              # Header, Footer, MobileNav
   home/  menu/  about/  gallery/  contact/  faq/  admin/
 config/                # site.ts, navigation.ts, seo.ts, limits.ts
-hooks/                 # useDebounce, useMediaQuery, useMounted...
+hooks/                 # useDebounce, useMediaQuery, useNotifications, useCsrf, useToast
 lib/
   auth/                # sessions, passwords (Argon2id), permissions
   db/                  # Prisma client singleton

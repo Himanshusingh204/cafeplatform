@@ -19,12 +19,3 @@ export function formatDateTime(date: Date | string): string {
     minute: "2-digit",
   }).format(d);
 }
-
-export function formatDate(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(d);
-}

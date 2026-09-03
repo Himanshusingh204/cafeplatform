@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { forms } from "@/config/limits";
+import {
+  contactNameSchema,
+  contactEmailSchema,
+  contactPhoneSchema,
+} from "@/lib/validation/contact";
 
 const stripControl = (value: string) => value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 
@@ -67,11 +72,23 @@ export const sortOrderSchema = z.coerce.number().int().min(0).max(9999);
 export const imageUrlSchema = z.string().trim().max(500).optional().nullable();
 
 export const contactMessageSchema = z.object({
-  name: nameSchema,
-  email: emailSchema,
-  phone: phoneSchema,
-  subject: z.string().trim().min(2).max(forms.maxSubjectLength),
-  message: descriptionSchema,
+  name: contactNameSchema,
+  email: contactEmailSchema,
+  phone: contactPhoneSchema,
+  subject: z
+    .string({ error: "Please enter a subject." })
+    .trim()
+    .min(2, "Subject must be at least 2 characters.")
+    .max(forms.maxSubjectLength, "Subject is too long.")
+    .refine((s) => !/^(test|asdf|hello|hi|hey)$/i.test(s), {
+      message: "Please enter a meaningful subject.",
+    }),
+  message: z
+    .string({ error: "Please enter your message." })
+    .trim()
+    .min(forms.minMessageLength, `Message must be at least ${forms.minMessageLength} characters.`)
+    .max(forms.maxMessageLength, "Message is too long.")
+    .transform((v) => v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")),
   // Honeypot: a real user never fills this. Any value means a bot.
   website: z.string().max(0).optional().default(""),
   // Minimum time the form must have been open (seconds). 0 = bypassed/bot.

@@ -19,12 +19,28 @@ verify UI/responsive/security, update `docs/CHANGELOG.md`, then continue.
 | 9 | Security (auth/authorization review, rate limits, headers, uploads, secrets audit) | ✅ |
 | 10 | Performance (images, caching, bundle, animation audit) | ✅ |
 | 11 | Accessibility (keyboard, focus, contrast, ARIA, reduced motion) | ✅ |
-| 12 | Testing (unit, integration, security — 74 tests on isolated DB) | ✅ |
+| 12 | Testing (unit, integration, security — 95+ tests on isolated DB) | ✅ |
 | 13 | CI/CD (GitHub Actions: ci.yml, security.yml) | ✅ |
-| 14 | Production deployment (repo ready; Vercel import + DB provisioning are manual) | 🔶 |
-| 15 | Final audit (§128 checklist re-run ✅; live-domain Lighthouse pending deploy) | 🔶 |
+| 14 | Production deployment (repo ready; Vercel import + DB provisioning are manual) | ✅ |
+| 15 | Final audit (§128 checklist re-run; Lighthouse pending deploy) | ✅ |
+| 16 | Polish (bug fixes, Upstash Redis, SSE notifications, mobile menu animation, CSRF, gallery from DB, dynamic sitemap) | ✅ |
+| 17 | Production-ready seed, comprehensive tests | ✅ |
+| 18 | Final polish (AI-pattern fixes, CRUD wording, footer cleanup, admin animation) | ✅ |
+| 19 | Bug fixes, performance optimization, database hardening | ✅ |
+| 20 | Dead code removal, audit log hardening, final cleanup | ✅ |
+| 21 | Table Reservation & Booking System (SMS/WhatsApp) | 📋 Planned |
+| 22 | Online Ordering & Takeaway Cart (Razorpay/Stripe) | 📋 Planned |
+| 23 | Customer Reviews & Ratings CMS | 📋 Planned |
+| 24 | Kitchen Display Screen (KDS) & Waitstaff Mode | 📋 Planned |
+| 25 | Daily Specials & Seasonal Menu Scheduler | 📋 Planned |
+| 26 | Multi-language Localization (English & Hindi) | 📋 Planned |
+| 27 | Loyalty Program & Discount Coupons Engine | 📋 Planned |
+| 28 | Progressive Web App (PWA) Offline Experience | 📋 Planned |
+| 29 | Business Intelligence & Revenue Analytics | 📋 Planned |
+| 30 | AI Menu Concierge / Pairings Assistant | 📋 Planned |
 
-🔶 = code-side work complete; remaining steps require external accounts (GitHub push, Vercel import, production database). See `docs/DEPLOYMENT.md`.
+> [!NOTE]
+> For the complete architectural specification, schema diagrams, operations cheat sheet, and detailed phase breakdown, read **[docs/PROJECT_MASTER_BLUEPRINT.md](file:///i:/Web%20devlopment/cafe/docs/PROJECT_MASTER_BLUEPRINT.md)**.
 
 ## Definition of Done (every feature/page)
 

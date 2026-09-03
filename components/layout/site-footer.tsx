@@ -5,7 +5,12 @@ import { LogoMark, Wordmark } from "@/components/brand/logo";
 import type { SiteSettings } from "@/lib/services/settings";
 
 export function SiteFooter({ settings }: { settings: SiteSettings }) {
-  const hours = JSON.parse(settings.openingHours || "{}") as Record<string, string>;
+  let hours: Record<string, string> = {};
+  try {
+    hours = JSON.parse(settings.openingHours || "{}") as Record<string, string>;
+  } catch {
+    hours = {};
+  }
   const today = hours[new Date().toLocaleDateString("en-IN", { weekday: "long" }).toLowerCase()];
 
   return (
@@ -17,8 +22,7 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
             <Wordmark />
           </Link>
           <p className="mt-4 max-w-sm text-sm text-muted-foreground">
-            {settings.tagline} Warm hospitality, honest ingredients and food worth
-            travelling for.
+            {settings.tagline}
           </p>
         </div>
 

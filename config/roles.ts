@@ -36,5 +36,7 @@ const rolePermissions: Record<AdminRole, readonly Permission[]> = {
 };
 
 export function hasPermission(role: AdminRole, permission: Permission): boolean {
-  return rolePermissions[role].includes(permission);
+  const perms = rolePermissions[role];
+  if (!perms) return false;
+  return perms.includes(permission);
 }

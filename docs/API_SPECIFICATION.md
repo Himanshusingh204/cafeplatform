@@ -36,6 +36,7 @@ Public pages read directly via Server Components (`getMenu()`, `getCategories()`
 |-------|--------|-----------|---------|
 | `/api/auth/login` | POST | — | Login (rate-limited) |
 | `/api/auth/logout` | POST | — | Logout |
+| `/api/notifications` | GET | session required | SSE real-time notifications (new messages) |
 | `/api/menu/categories` | GET/POST | VIEW_MENU/CREATE_MENU | List/create categories |
 | `/api/menu/categories/[id]` | PATCH/DELETE | EDIT_MENU/DELETE_MENU | Update/delete category |
 | `/api/menu/dishes` | GET/POST | VIEW_MENU/CREATE_MENU | List/create dishes |

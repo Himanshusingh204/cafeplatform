@@ -51,7 +51,7 @@ export async function getSession(): Promise<SessionAdmin | null> {
   const tokenHash = hashToken(token);
   const session = await db.session.findUnique({
     where: { tokenHash },
-    include: { admin: true },
+    include: { admin: { select: { id: true, email: true, name: true, role: true, isActive: true } } },
   });
 
   if (!session || session.expiresAt < new Date()) {

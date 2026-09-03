@@ -11,9 +11,12 @@ export function FeaturedDishes({ featured }: { featured: PublicDish[] }) {
     <section className="section-pad">
       <div className="container-site">
         <Reveal>
-          <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div className="mb-10 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-6">
             <div>
-              <h2 className="heading-display text-3xl md:text-4xl">Loved by regulars</h2>
+              <p className="eyebrow mb-2">House favourites</p>
+              <h2 className="heading-display text-3xl md:text-4xl">
+                What the regulars order
+              </h2>
             </div>
             <Link
               href="/menu"
@@ -24,9 +27,12 @@ export function FeaturedDishes({ featured }: { featured: PublicDish[] }) {
           </div>
         </Reveal>
 
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {featured.slice(0, 4).map((dish, index) => (
-            <Reveal key={dish.id} delay={index * 0.08}>
+            <Reveal
+              key={dish.id}
+              delay={(index % 4) * 0.08}
+            >
               <DishCard dish={dish} />
             </Reveal>
           ))}

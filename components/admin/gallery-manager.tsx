@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { ImageUploader } from "@/components/admin/image-uploader";
 import { saveGalleryImageAction, deleteGalleryImageAction } from "@/app/admin/actions/gallery";
 
 export interface AdminGalleryRow {
@@ -178,18 +179,21 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="gallery-url">Image path or URL *</Label>
-            <Input
-              id="gallery-url"
+            <Label className="font-medium">Gallery Photography *</Label>
+            <ImageUploader
               name="imageUrl"
-              required
-              maxLength={500}
-              placeholder="/images/gallery/interior-01.jpg"
               defaultValue={editing?.imageUrl ?? ""}
+              folder="gallery"
+              presetImages={[
+                { name: "Café Interior", path: "/images/gallery/interior-01.jpg" },
+                { name: "Royal Thali", path: "/images/gallery/thali-spread.jpg" },
+                { name: "Tandoor at Work", path: "/images/gallery/tandoor-action.jpg" },
+                { name: "Paneer Tikka", path: "/images/gallery/paneer-tikka.jpg" },
+                { name: "Dum Biryani", path: "/images/gallery/biryani-handi.jpg" },
+                { name: "Cozy Ambiance", path: "/images/gallery/cafe-ambiance.jpg" },
+                { name: "Samosa Platter", path: "/images/gallery/samosa-platter.jpg" },
+              ]}
             />
-            <p className="text-xs text-muted-foreground">
-              Upload files to public/images/gallery/ and paste the path here.
-            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -230,7 +234,7 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
             </p>
           ) : null}
 
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
+          <div className="sticky bottom-0 -mx-6 mt-6 flex justify-end gap-3 border-t border-border bg-card px-6 py-4">
             <Button
               type="button"
               variant="outline"

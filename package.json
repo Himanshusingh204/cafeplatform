@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate deploy",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "next build && playwright test",
     "create-admin": "node scripts/create-admin.mjs"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.43",
     "@types/react": "^19",

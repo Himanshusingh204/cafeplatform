@@ -49,5 +49,5 @@ Never log passwords or tokens.
 - Public menu is 100% database-driven
 - Session cookie: `cafe_session`; gate in `proxy.ts` is presence-only — real verification lives in `requireAdmin()`/`requirePermission()`
 - Deploys self-migrate: `vercel.json` build command runs `prisma migrate deploy && next build`; `postinstall` regenerates the gitignored Prisma client
-- Test suite: 74 tests (unit + integration + security) via `npm test`; integration tests never touch dev data
+- Test suite: 95+ tests (unit + integration + security) via `npm test`; integration tests never touch dev data
 - `docs/BRAIN.md` is the canonical AI memory file

@@ -94,6 +94,117 @@ All notable project changes. Format: Phase — description.
 - Frozen AI memory docs to final state: `MASTER_PLAN.md` phase table, `PROJECT_OVERVIEW.md`, `MEMORY.md`.
 - `HANDOFF.md` rewritten as the current-state handoff document.
 
+## Design de-templatization pass
+
+- Homepage audit against generic-pattern checklist; removed every uniform card-grid section: featured dishes now a broken zig-zag grid (6-col spans 4/2/2/4), category highlights a numbered ruled index (print-menu style), gallery preview an asymmetric staggered collage (varied aspect ratios, offset columns, editorial captions instead of repeated gradient overlays), "why visit" replaced icon-circle cards with a statement + ruled facts ledger.
+- Hero: specific human copy ("Indian food, cooked the long way"), print-style offset frame behind image, photo caption instead of floating badge card; duplicate floating-badge trick removed from about preview (now portrait ratio + caption line).
+- Closing CTA converted from lone centered button to ruled invitation band.
+- About page values: three bordered cards → hairline-divided definition rows.
+- Typography: display tracking tightened (-0.01em), `.eyebrow` + tabular-numeral utilities added, button press feedback (`active:scale`) added.
+- Removed unused Next.js starter SVGs from `public/`.
+- Verified: lint clean, typecheck clean, 74/74 tests passing, production build succeeds.
+
+## Phase 14 — Contact email notifications
+
+- Added `lib/email/notifier.ts`: Resend-backed owner notification for new contact messages, plain-text + escaped-HTML bodies (XSS-safe), `reply_to` set to the visitor so the owner can reply directly.
+- Feature-flagged via env: sends only when both `EMAIL_API_KEY` and `CONTACT_NOTIFY_EMAIL` are set; optional `EMAIL_FROM_ADDRESS` override (defaults to Resend test sender). Unconfigured = silent no-op.
+- Best-effort semantics wired into `/api/contact` after DB storage: notification failure is logged but never fails the visitor's submission.
+- No new dependency (direct fetch to Resend API).
+- Tests: 5 new unit tests (config gating, payload correctness + HTML escaping, API rejection, network error tolerance) → **79 tests total**.
+- Docs: `.env.example`, `DEPLOYMENT.md` env matrix updated.
+
+---
+
+## Phase 15 — E2E testing & admin polish
+
+- Set up Playwright (config, deps, vitest exclusion): 2 projects — chromium (desktop) + mobile-chrome (Pixel 7 viewport override).
+- `tests/e2e/global-setup.ts`: migrates + seeds isolated `indian_cafe_test` DB via `execSync`.
+- Public visitor flows (6 specs, 15 tests): homepage, menu, gallery, faq, contact, 404.
+- Admin security + CRUD (4 specs, 23 tests): login, dashboard, category CRUD, dish CRUD, messages inbox.
+- CI workflow `ci.yml`: added E2E job (postgres service, build, playwright test).
+- Env-tunable rate limits (`LOGIN_RATE_MAX`, `CONTACT_RATE_MAX`) in `config/limits.ts` to unblock E2E suite.
+- Admin panel design polish: sticky modal footers in dish-manager, category-manager, gallery-manager.
+- Fixed dashboard dead code (no-op conditional), duplicate import in dishes page, incomplete sidebar nav icons (added UtensilsCrossed, FolderOpen, Image, Mail, Settings, Activity).
+- Fixed unhandled promise rejections on dish availability/featured toggle actions.
+- Moved settings action from `actions/messages.ts` to `actions/settings.ts` (proper separation).
+- Added `app/admin/(panel)/loading.tsx` skeleton for admin panel navigation.
+- Mobile-chrome viewport fix: explicit `412×915` with `hasTouch: true` instead of device preset (eliminates backdrop-blur click interception emulation artifact).
+- Deleted `tests/e2e/probe.spec.ts` (debugging file no longer needed).
+
+---
+
+## Phase 16 — Polish, security hardening, real-time notifications
+
+- **Bug fixes:** Contact form timing guard (was sending raw timestamp instead of elapsed seconds); Footer `JSON.parse` crash on malformed settings; `requirePermission` FORBIDDEN → `notFound()` instead of throwing error.
+- **CI fix:** Added missing `prisma migrate deploy` + `prisma db seed` steps to E2E job in `.github/workflows/ci.yml`.
+- **Rate limiter upgraded:** `lib/rate-limit/limiter.ts` now supports Upstash Redis (async) with in-memory fallback. All callers updated to `await`. Added `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` to `.env.example`.
+- **Real-time notifications:** Added `/api/notifications` SSE endpoint for admin panel (polls for new messages every 10s, 30s heartbeat, auto-cleanup after 5min). Notification bell with unread badge in admin shell.
+- **Mobile menu animation:** Framer Motion slide transition on `SiteHeader` mobile drawer (staggered nav items, height + opacity animation).
+- **Gallery from database:** Homepage gallery preview now pulls published images from DB instead of hardcoded placeholders.
+- **Dynamic sitemap:** `/sitemap.xml` now includes individual dish pages from database (with graceful fallback if DB unavailable).
+- **Security hardening:** HMAC-signed CSRF tokens (`lib/security/csrf.ts`), cookie deduplication, `use-csrf` hook.
+- **Pagination component:** Reusable `<Pagination>` for admin lists (`components/ui/pagination.tsx`).
+- **Hooks directory:** `use-debounce.ts`, `use-media-query.ts` (SSR-safe via `useSyncExternalStore`), `use-toast.ts`, `use-notifications.ts`, `use-csrf.ts`.
+- **Error boundary:** `app/(public)/error.tsx` with try-again and back-to-home.
+- **Admin loading skeleton:** `app/admin/(panel)/loading.tsx` for panel navigation.
+- **Lint/typecheck fixes:** `guardMutation` made `async`; hooks refactored to avoid `setState` in effects; build passes clean.
+
+## Phase 17 — Production-ready seed, comprehensive tests
+
+- **Production-ready seed:** `prisma/seed.ts` now uses `SEED_DEMO_DATA=true` env flag to include demo dishes/categories/gallery. Settings are always seeded. Admin name/role configurable via env vars.
+- **New integration tests:** `tests/integration/settings.test.ts` (normalizeSettings, CRUD, audit logging, caching), `tests/integration/gallery.test.ts` (CRUD, NOT_FOUND guards, audit logging), `tests/integration/audit.test.ts` (logAction with all field combinations, action types).
+- **New unit tests:** `tests/unit/csrf.test.ts` (HMAC token generation, validation, tampering rejection), `tests/unit/request-utils.test.ts` (hashIp consistency, IPv4/IPv6 handling).
+- **New API tests:** `tests/integration/api-health.test.ts` (health endpoint status and timestamp).
+- **Env configuration:** `.env.example` updated with seed configuration vars (`SEED_DEMO_DATA`, `CAFE_*` settings).
+
+## Phase 18 — Final polish
+
+- **AI-pattern fixes:** Removed duplicate tagline in footer, replaced oddly-specific hero timestamp with "Lunch service — Hauz Khas", fixed dish delete confirmation wording ("contact support" → honest soft-delete language).
+- **Admin animation:** Added slide-in transition on mobile admin navigation menu.
+- **Login page:** Improved background contrast for login screen.
+- **Quality gates:** Lint, typecheck, and build all pass clean.
+
+## Phase 19 — Bug fixes, performance, database hardening
+
+- **Critical bug fixes:**
+  - Fixed SSE notifications `cancel` handler (cleanup function was never called due to parameter mismatch).
+  - Fixed contact page crash on malformed `openingHours` JSON (added try/catch).
+  - Fixed origin check HTTP status codes (422/401 → 403 for invalid origins).
+  - Fixed email notification blocking response (now fire-and-forget with `void`).
+  - Fixed `hasPermission` crash on invalid role values (added defensive check).
+  - Fixed admin role display (`replace` → `replaceAll` for multi-underscore roles).
+
+- **Performance improvements:**
+  - Added ISR `revalidate = 300` to all public pages (homepage, menu, gallery, about, contact, FAQ, terms, privacy).
+  - Added image format optimization (`avif` + `webp`) and tuned `deviceSizes`/`imageSizes` in `next.config.ts`.
+  - Replaced gallery preview direct DB call with cached `getPublishedGallery()` service.
+  - Replaced `getDishBySlugCached` (loaded entire menu to find one dish) with direct `db.dish.findFirst` query.
+  - Batched `updateSettings` upserts in `db.$transaction()` (11 round-trips → 1).
+  - Added `select` to `fetchMenu` to avoid transferring full `description` text on list views.
+  - Added `select` to `getSession` to avoid loading `passwordHash` into memory.
+  - Added `select` to `fetchPublishedGallery` to avoid fetching unused columns.
+  - Added `select` to `getSettingsCached`/`getSettingsFresh` to fetch only `key`+`value`.
+
+- **Database hardening:**
+  - Added try/catch with graceful fallbacks to `getDashboardStats`, `getRecentActivity`, `getRecentDishes`.
+  - Added try/catch to `listGalleryAdmin`, `listCategoriesAdmin`.
+  - Fixed `updateSettings` to use `db.$transaction()` for atomic batch upserts.
+
+- **Minor fixes:**
+  - Fixed dish price display in admin (raw `₹299` → `formatPrice(299)` for consistent formatting).
+  - Added `type="button"` to error page button.
+  - Removed unnecessary `Suspense` wrapper from admin messages page.
+  - Updated deployment docs with specific database provisioning providers and steps.
+
+## Phase 20 — Dead code removal, audit log hardening, final cleanup
+
+- **Audit log hardening:** Wrapped `logAction` in try/catch — logging failures no longer crash mutations.
+- **Removed dead CSRF module:** `lib/security/csrf.ts` + `hooks/use-csrf.ts` (generated tokens but never validated anywhere).
+- **Removed dead hooks:** `use-media-query.ts`, `use-debounce.ts`, `use-toast.ts` (exported but never imported).
+- **Removed dead UI components:** `select.tsx`, `form-field.tsx`, `pagination.tsx` (exported but never rendered).
+- **Removed dead exports:** `createRequestId`, `formatDate`, `getCategoryAdmin`, `notFound` (response), `conflict`, `upload`, `pagination` (config).
+- **Quality gates:** Lint, typecheck, and build all pass clean.
+
 ---
 
 _Next up (manual): push to GitHub, provision prod/preview databases, import repo in Vercel, create production admin, replace placeholder images, run Lighthouse on the live domain._

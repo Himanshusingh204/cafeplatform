@@ -3,13 +3,39 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, LogOut, Menu, X } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  X,
+  UtensilsCrossed,
+  FolderOpen,
+  Image,
+  Mail,
+  Settings,
+  Activity,
+  Bell,
+  ExternalLink,
+  Calendar,
+  ShoppingBag,
+  Star,
+} from "lucide-react";
 import { adminNavigation } from "@/config/navigation";
 import { cn } from "@/lib/utils/cn";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
+import { useNotifications } from "@/hooks/use-notifications";
 
 const navIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   "/admin": LayoutDashboard,
+  "/admin/reservations": Calendar,
+  "/admin/orders": ShoppingBag,
+  "/admin/dishes": UtensilsCrossed,
+  "/admin/categories": FolderOpen,
+  "/admin/reviews": Star,
+  "/admin/gallery": Image,
+  "/admin/messages": Mail,
+  "/admin/settings": Settings,
+  "/admin/activity": Activity,
 };
 
 export function AdminShell({
@@ -22,6 +48,7 @@ export function AdminShell({
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  const { lastNotification } = useNotifications();
 
   const closeMenu = () => setOpen(false);
 
@@ -78,7 +105,7 @@ export function AdminShell({
       </header>
 
       {open ? (
-        <div className="border-b border-border bg-card px-4 py-4 lg:hidden">{nav}</div>
+        <div className="border-b border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200">{nav}</div>
       ) : null}
 
       <aside className="hidden w-60 shrink-0 flex-col justify-between border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:py-6">
@@ -92,7 +119,7 @@ export function AdminShell({
 
         <div className="mx-3 rounded-xl bg-muted/70 p-4">
           <p className="truncate text-sm font-medium">{admin.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{admin.role.toLowerCase().replace("_", " ")}</p>
+          <p className="truncate text-xs text-muted-foreground">{admin.role.toLowerCase().replaceAll("_", " ")}</p>
           <button
             type="button"
             onClick={handleLogout}
@@ -105,16 +132,39 @@ export function AdminShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="hidden h-16 items-center justify-end gap-4 border-b border-border bg-card px-8 lg:flex">
-          <span className="text-sm text-muted-foreground">{admin.email}</span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-          >
-            <LogOut className="h-4 w-4" aria-hidden="true" />
-            Sign out
-          </button>
+        <div className="hidden h-16 items-center justify-between border-b border-border bg-card px-8 lg:flex">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>View Live Site</span>
+            </Link>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Bell className="h-5 w-5 text-muted-foreground" />
+                {lastNotification?.type === "new_message" && (
+                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                    {lastNotification.count ?? 1}
+                  </span>
+                )}
+              </div>
+              <span className="text-sm text-muted-foreground">{admin.email}</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
         </div>
         <main className="flex-1 px-4 py-8 md:px-8">{children}</main>
       </div>

@@ -6,17 +6,23 @@ import { logAction } from "@/lib/services/audit";
 import type { GalleryCategory } from "@/lib/generated/prisma/enums";
 
 async function fetchPublishedGallery() {
-  const images = await db.galleryImage.findMany({
-    where: { isPublished: true },
-    orderBy: { sortOrder: "asc" },
-  });
-  return images.map((img) => ({
-    id: img.id,
-    title: img.title,
-    altText: img.altText,
-    imageUrl: img.imageUrl,
-    category: img.category,
-  }));
+  try {
+    const images = await db.galleryImage.findMany({
+      where: { isPublished: true },
+      orderBy: { sortOrder: "asc" },
+      select: {
+        id: true,
+        title: true,
+        altText: true,
+        imageUrl: true,
+        category: true,
+      },
+    });
+    return images;
+  } catch (error) {
+    console.error("fetchPublishedGallery: database query failed", error);
+    return [];
+  }
 }
 
 export const getGalleryCached = unstable_cache(fetchPublishedGallery, ["gallery"], {
@@ -29,7 +35,11 @@ export async function getPublishedGallery() {
 }
 
 export async function listGalleryAdmin() {
-  return db.galleryImage.findMany({ orderBy: { sortOrder: "asc" } });
+  try {
+    return await db.galleryImage.findMany({ orderBy: { sortOrder: "asc" } });
+  } catch {
+    return [];
+  }
 }
 
 export async function createGalleryImage(

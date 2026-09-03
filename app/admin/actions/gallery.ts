@@ -13,8 +13,8 @@ import {
 } from "@/lib/services/gallery";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
-function guardMutation(adminId: string): string | null {
-  const limiter = rateLimit(`admin:${adminId}`, limits.adminMutation.max, limits.adminMutation.windowMs);
+async function guardMutation(adminId: string): Promise<string | null> {
+  const limiter = await rateLimit(`admin:${adminId}`, limits.adminMutation.max, limits.adminMutation.windowMs);
   return limiter.success ? null : "Too many changes in a short time. Please wait a moment.";
 }
 
@@ -28,7 +28,7 @@ function firstIssue(error: unknown): string {
 
 export async function saveGalleryImageAction(input: Record<string, unknown>): Promise<ActionState> {
   const admin = await requirePermission(permissions.MANAGE_GALLERY);
-  const blocked = guardMutation(admin.id);
+  const blocked = await guardMutation(admin.id);
   if (blocked) return { ok: false, error: blocked };
 
   const id = typeof input.id === "string" ? input.id : null;
@@ -59,7 +59,7 @@ export async function saveGalleryImageAction(input: Record<string, unknown>): Pr
 
 export async function deleteGalleryImageAction(id: string): Promise<ActionState> {
   const admin = await requirePermission(permissions.MANAGE_GALLERY);
-  const blocked = guardMutation(admin.id);
+  const blocked = await guardMutation(admin.id);
   if (blocked) return { ok: false, error: blocked };
 
   try {

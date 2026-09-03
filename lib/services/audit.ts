@@ -10,13 +10,17 @@ export async function logAction(input: {
   entityId?: string | null;
   metadata?: Record<string, unknown> | null;
 }) {
-  await db.activityLog.create({
-    data: {
-      actorId: input.actorId ?? null,
-      action: input.action,
-      entityType: input.entityType,
-      entityId: input.entityId ?? null,
-      metadata: (input.metadata as object | null) ?? undefined,
-    },
-  });
+  try {
+    await db.activityLog.create({
+      data: {
+        actorId: input.actorId ?? null,
+        action: input.action,
+        entityType: input.entityType,
+        entityId: input.entityId ?? null,
+        metadata: (input.metadata as object | null) ?? undefined,
+      },
+    });
+  } catch {
+    // Best-effort: log failure must never crash the calling mutation
+  }
 }

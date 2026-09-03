@@ -33,8 +33,13 @@ export function normalizeSettings(rows: { key: string; value: string }[]): SiteS
 
 export const getSettingsCached = unstable_cache(
   async (): Promise<SiteSettings> => {
-    const rows = await db.setting.findMany();
-    return normalizeSettings(rows);
+    try {
+      const rows = await db.setting.findMany({ select: { key: true, value: true } });
+      return normalizeSettings(rows);
+    } catch (error) {
+      console.error("getSettingsCached: database query failed, returning defaults", error);
+      return { ...DEFAULTS } as SiteSettings;
+    }
   },
   ["site-settings"],
   { tags: ["settings"], revalidate: 300 }
@@ -45,8 +50,13 @@ export async function getSettings(): Promise<SiteSettings> {
 }
 
 export async function getSettingsFresh(): Promise<SiteSettings> {
-  const rows = await db.setting.findMany();
-  return normalizeSettings(rows);
+  try {
+    const rows = await db.setting.findMany({ select: { key: true, value: true } });
+    return normalizeSettings(rows);
+  } catch (error) {
+    console.error("getSettingsFresh: database query failed, returning defaults", error);
+    return { ...DEFAULTS } as SiteSettings;
+  }
 }
 
 export async function updateSettings(
@@ -54,13 +64,16 @@ export async function updateSettings(
   actorId?: string | null
 ) {
   const entries = Object.entries(input) as [keyof SiteSettings, string][];
-  for (const [key, value] of entries) {
-    await db.setting.upsert({
-      where: { key },
-      create: { key, value },
-      update: { value },
-    });
-  }
+
+  await db.$transaction(
+    entries.map(([key, value]) =>
+      db.setting.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value },
+      })
+    )
+  );
 
   await logAction({
     actorId,

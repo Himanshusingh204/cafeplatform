@@ -7,21 +7,19 @@ import { cn } from "@/lib/utils/cn";
 
 export function Hero() {
   return (
-    <section className="container-site grid items-center gap-10 py-14 md:grid-cols-2 md:gap-14 md:py-20">
+    <section className="container-site grid items-center gap-12 py-14 md:grid-cols-2 md:gap-16 md:py-24">
       <Reveal>
         <div className="max-w-xl">
-          <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-primary">
-            Indian Café · New Delhi
-          </p>
-          <h1 className="heading-display text-5xl md:text-6xl lg:text-[4.25rem]">
-            Authentic Indian flavours.{" "}
-            <span className="text-primary italic">Thoughtfully</span> prepared.
+          <p className="eyebrow mb-4">Hauz Khas Village · New Delhi</p>
+          <h1 className="heading-display text-balance text-5xl md:text-6xl lg:text-[4.25rem]">
+            Indian food, cooked{" "}
+            <span className="text-primary italic">the long way</span>.
           </h1>
-          <p className="mt-5 max-w-md text-lg leading-relaxed text-muted-foreground">
-            Slow-cooked gravies, charcoal-grilled tikka and fresh breads from
-            the tandoor — served with warmth, every single day.
+          <p className="text-pretty mt-6 max-w-md text-lg leading-relaxed text-muted-foreground">
+            Gravies that simmer for six hours, masalas ground fresh every
+            morning, breads pulled to order from the tandoor.
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
+          <div className="mt-9 flex flex-wrap items-center gap-3">
             <Link href="/menu" className={cn(buttonVariants({ size: "lg" }), "group")}>
               Explore Menu
               <ArrowRight
@@ -37,21 +35,24 @@ export function Hero() {
       </Reveal>
 
       <Reveal delay={0.15}>
-        <div className="relative">
+        <div className="relative mx-auto w-full max-w-xl">
+          <div
+            aria-hidden="true"
+            className="absolute -inset-x-3 -top-3 bottom-8 rounded-[1.5rem] border border-border sm:-inset-x-5"
+          />
           <div className="relative aspect-[4/3] overflow-hidden rounded-2xl shadow-card">
             <Image
-              src="/images/placeholders/hero-placeholder.jpg"
-              alt="Signature dishes at the café"
+              src="/images/hero/hero-dining.jpg"
+              alt="Warm, inviting dining room at Spice & Saffron"
               fill
               priority
               sizes="(max-width: 768px) 100vw, 50vw"
               className="object-cover"
             />
           </div>
-          <div className="absolute -bottom-5 -left-5 hidden rounded-xl border border-border bg-card px-5 py-4 shadow-card sm:block">
-            <p className="heading-display text-2xl">Fresh daily</p>
-            <p className="text-sm text-muted-foreground">From our tandoor &amp; kitchen</p>
-          </div>
+          <p className="mt-5 text-right text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            Lunch service — Hauz Khas
+          </p>
         </div>
       </Reveal>
     </section>

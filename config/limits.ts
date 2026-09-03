@@ -1,12 +1,19 @@
 // Rate limiting configuration — centralized so limits are easy to tune.
+// Max values can be overridden per environment (e.g. larger budgets for
+// automated suites) via LOGIN_RATE_MAX / CONTACT_RATE_MAX.
+function positiveIntFromEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const limits = {
   login: {
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // attempts per window per IP + account
+    max: positiveIntFromEnv(process.env.LOGIN_RATE_MAX, 5), // attempts per window per IP + account
   },
   contact: {
     windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 3, // submissions per IP
+    max: positiveIntFromEnv(process.env.CONTACT_RATE_MAX, 3), // submissions per IP
   },
   adminMutation: {
     windowMs: 60 * 1000, // 1 minute
@@ -16,21 +23,6 @@ export const limits = {
     windowMs: 60 * 1000, // 1 minute
     max: 300, // requests per IP
   },
-  upload: {
-    windowMs: 60 * 1000,
-    max: 10,
-  },
-} as const;
-
-export const upload = {
-  maxBytes: 5 * 1024 * 1024, // 5 MB
-  allowedMime: ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"],
-  allowedExtensions: [".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"],
-} as const;
-
-export const pagination = {
-  pageSize: 50,
-  maxPageSize: 100,
 } as const;
 
 export const forms = {

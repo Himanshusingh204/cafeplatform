@@ -1,52 +1,59 @@
-import { Leaf, Flame, HeartHandshake } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
 
-const reasons = [
+const facts = [
   {
-    icon: Leaf,
-    title: "Superior ingredients",
-    description:
-      "Every dish starts with whole spices, fresh herbs and produce sourced from trusted suppliers who share our values.",
+    term: "Spices",
+    detail:
+      "Whole masalas dry-roasted on the tawa and ground in-house every Monday morning.",
   },
   {
-    icon: Flame,
-    title: "Traditional techniques",
-    description:
-      "Slow-cooked curries, charcoal-grilled tandoor and breads made to order — the methods that give Indian food its soul.",
+    term: "The tandoor",
+    detail:
+      "Lit at nine, still glowing past midnight. Naan goes in only when you order it.",
   },
   {
-    icon: HeartHandshake,
-    title: "Warm hospitality",
-    description:
-      "We treat every guest like family. Come for a quick lunch or a long dinner — you will always be looked after.",
+    term: "Gravies",
+    detail:
+      "The butter chicken base simmers for six hours. No paste, no shortcuts.",
+  },
+  {
+    term: "Chai",
+    detail: "Kettle stays on all day. Your second cup is on us.",
   },
 ];
 
 export function WhyVisit() {
   return (
     <section className="section-pad">
-      <div className="container-site">
+      <div className="container-site grid gap-12 lg:grid-cols-[1fr_1.15fr] lg:gap-20">
         <Reveal>
-          <div className="mb-10 text-center">
-            <h2 className="heading-display text-3xl md:text-4xl">A café experience like no other</h2>
+          <div className="lg:sticky lg:top-28">
+            <p className="eyebrow mb-4">How we cook</p>
+            <h2 className="heading-display text-balance text-3xl md:text-[2.75rem] md:leading-[1.1]">
+              Nothing here comes out of a jar.
+            </h2>
+            <p className="text-pretty mt-6 max-w-md leading-relaxed text-muted-foreground">
+              It slows the kitchen down and it costs us more — and it is the
+              only way we know to cook food worth coming back for.
+            </p>
           </div>
         </Reveal>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {reasons.map((reason, index) => (
-            <Reveal key={reason.title} delay={index * 0.08}>
-              <div className="flex h-full items-start gap-3 rounded-xl border border-border bg-card p-5 shadow-card transition-all duration-300 hover:shadow-card-hover">
-                <div className="flex-shrink-0 rounded-full bg-primary/10 p-3">
-                  <reason.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-medium text-lg">{reason.title}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{reason.description}</p>
-                </div>
+        <Reveal delay={0.1}>
+          <dl className="divide-y divide-border border-b border-t border-border">
+            {facts.map((fact) => (
+              <div
+                key={fact.term}
+                className="grid gap-2 py-6 sm:grid-cols-[9rem_1fr] sm:gap-6"
+              >
+                <dt className="heading-display text-xl">{fact.term}</dt>
+                <dd className="text-pretty max-w-md text-sm leading-relaxed text-muted-foreground">
+                  {fact.detail}
+                </dd>
               </div>
-            </Reveal>
-          ))}
-        </div>
+            ))}
+          </dl>
+        </Reveal>
       </div>
     </section>
   );

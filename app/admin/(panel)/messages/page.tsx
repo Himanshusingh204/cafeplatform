@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { MessageList } from "@/components/admin/message-list";
 import { listMessagesAdmin } from "@/lib/services/messages";
 import { requirePermission } from "@/lib/auth/guards";
@@ -25,19 +24,17 @@ export default async function AdminMessagesPage({ searchParams }: MessagesPagePr
   });
 
   return (
-    <Suspense>
-      <MessageList
-        messages={items.map((message) => ({
-          id: message.id,
-          name: message.name,
-          email: message.email,
-          phone: message.phone,
-          subject: message.subject,
-          message: message.message,
-          status: message.status,
-          createdAt: message.createdAt.toISOString(),
-        }))}
-      />
-    </Suspense>
+    <MessageList
+      messages={items.map((message) => ({
+        id: message.id,
+        name: message.name,
+        email: message.email,
+        phone: message.phone,
+        subject: message.subject,
+        message: message.message,
+        status: message.status,
+        createdAt: message.createdAt.toISOString(),
+      }))}
+    />
   );
 }

@@ -7,6 +7,7 @@ import { requireDatabaseUrl, toTestDatabaseUrl } from "./tests/setup/test-db-url
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
     // Suites share one test database, so files must not truncate concurrently.
     fileParallelism: false,
     globalSetup: "./tests/setup/global-setup.ts",

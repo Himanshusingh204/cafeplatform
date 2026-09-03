@@ -3,8 +3,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Clock, Flame } from "lucide-react";
+import { DishCard } from "@/components/menu/dish-card";
 import { DishTags } from "@/components/menu/dish-tags";
-import { getDishBySlugCached } from "@/lib/services/menu";
+import { getDishBySlugCached, getRelatedDishes } from "@/lib/services/menu";
 import { formatPrice } from "@/lib/utils/format";
 
 interface DishPageProps {
@@ -33,8 +34,33 @@ export default async function DishPage({ params }: DishPageProps) {
   const dish = await getDishBySlugCached(slug);
   if (!dish) notFound();
 
+  const relatedDishes = await getRelatedDishes(dish.categorySlug, dish.slug, 3);
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "MenuItem",
+    name: dish.name,
+    description: dish.description,
+    image: dish.image,
+    offers: {
+      "@type": "Offer",
+      price: dish.price,
+      priceCurrency: "INR",
+      availability: "https://schema.org/InStock",
+    },
+    suitableForDiet: [
+      dish.isVegetarian ? "https://schema.org/VegetarianDiet" : null,
+      dish.isVegan ? "https://schema.org/VeganDiet" : null,
+    ].filter(Boolean),
+  };
+
   return (
     <div className="container-site py-12 md:py-16">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       <Link
         href="/menu"
         className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
@@ -111,6 +137,32 @@ export default async function DishPage({ params }: DishPageProps) {
           </dl>
         </div>
       </article>
+
+      {/* Recommended Dishes from the same category */}
+      {relatedDishes.length > 0 && (
+        <section className="mt-20 border-t border-border pt-12">
+          <div className="mb-8 flex items-end justify-between gap-4">
+            <div>
+              <p className="eyebrow mb-1">More from our kitchen</p>
+              <h2 className="heading-display text-2xl md:text-3xl">
+                More in {dish.categoryName}
+              </h2>
+            </div>
+            <Link
+              href={`/menu#${dish.categorySlug}`}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              See all {dish.categoryName} &rarr;
+            </Link>
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {relatedDishes.map((item) => (
+              <DishCard key={item.id} dish={item} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

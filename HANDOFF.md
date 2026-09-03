@@ -1,8 +1,8 @@
 # HANDOFF — Spice & Saffron Indian Café Website
 
-**Date:** August 21, 2026
-**Status:** All 14 phases COMPLETE. Code-side work finished. Only external-account launch steps remain.
-**Repo:** git initialized on `main` (commits `22910f3`, `43173c0` + docs/polish commits). Working tree clean after this commit.
+**Date:** August 23, 2026
+**Status:** Phase 17 COMPLETE. Production-ready seed, comprehensive tests, all quality gates green. Ready to ship.
+**Repo:** git initialized on `main`. Working tree clean after this commit.
 
 ---
 
@@ -16,8 +16,9 @@ A production-grade, premium Indian café website (Next.js 16.3.1 + TypeScript + 
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` | clean |
-| `npm test` | 74/74 passing (unit + integration + security) |
+| `npm test` | 95+ passing (unit + integration + security) |
 | `npm run build` | succeeds; 13 static pages + dynamic routes |
+| `npm run test:e2e` | 38/38 passing (chromium + mobile-chrome) |
 | Lighthouse (local prod build) | Perf 90 · A11y 100 · BP 100 · SEO 100 |
 | §128 security audit | all answers "No" (see CHANGELOG Phase 13) |
 | Route smoke test | 14/14 correct status codes |
@@ -29,7 +30,8 @@ A production-grade, premium Indian café website (Next.js 16.3.1 + TypeScript + 
 - **Caching:** ISR 5m on public pages; tag-based revalidation ("menu", "gallery", settings) after admin mutations.
 - **Security headers:** `next.config.ts` (CSP self-hosted, no eval in prod; X-Frame-Options DENY; etc.). `poweredByHeader` off.
 - **Rate limits:** login 5/15min, contact 3/10min, admin mutations per-admin (`config/limits.ts`).
-- **Tests:** vitest; integration suites auto-create + migrate an isolated `indian_cafe_test` DB via `tests/setup/global-setup.ts`. Dev data never touched.
+- **Tests:** vitest unit/integration/security + Playwright E2E. Integration suites auto-create + migrate an isolated `indian_cafe_test` DB. Dev data never touched.
+- **E2E:** Playwright 2 projects (chromium + mobile-chrome viewport 412×915). Serial execution. Env overrides: `LOGIN_RATE_MAX=100`, `CONTACT_RATE_MAX=50`.
 - **Deploys:** `vercel.json` build command runs `prisma migrate deploy && next build`; `postinstall` regenerates the gitignored Prisma client.
 
 ## Read before modifying anything
@@ -50,14 +52,14 @@ A production-grade, premium Indian café website (Next.js 16.3.1 + TypeScript + 
 2. **Databases:** provision production + preview Postgres (Vercel Postgres / Neon / Supabase). Never share prod DB with preview.
 3. **Vercel:** import repo; set env vars per environment (matrix in `docs/DEPLOYMENT.md`): `DATABASE_URL`, `AUTH_SECRET` (fresh `openssl rand -base64 32`), `APP_URL`, optional `EMAIL_API_KEY`.
 4. **Production admin:** point `DATABASE_URL` at prod DB locally, run `npm run create-admin` with generated credentials. Never reuse dev seed creds (`admin@spiceandsaffron.in` / `ChangeMe123!` are DEV ONLY).
-5. **Content:** replace `public/images/placeholders/*` with real photography; remove seed demo dishes from prod DB (§116).
+5. **Content:** replace `public/images/placeholders/*` with real photography; remove seed demo dishes from prod DB.
 6. **Final QA on live domain:** Lighthouse ≥90, `curl -I` header check, backup enablement + one restore test.
 
 ## Known non-blockers
 
 - Forged-session requests get HTTP 200 with loading skeletons then a meta-refresh redirect (no data ever leaks; render-time guard handles it). Cosmetic only.
 - Local Lighthouse numbers vary ±8 points run-to-run; measure on the deployed domain for truth.
-- Rate limiter is in-memory — swap for Redis/Upstash when scaling beyond a single region (interface is drop-in, see `lib/rate-limit/limiter.ts`).
+- Rate limiter supports Upstash Redis (async) with in-memory fallback. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for production. Interface is drop-in, see `lib/rate-limit/limiter.ts`.
 
 ## Deliberately out of scope (v1)
 

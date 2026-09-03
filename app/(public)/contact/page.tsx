@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ContactForm } from "@/components/contact/contact-form";
 import { getSettings } from "@/lib/services/settings";
 
+export const revalidate = 300;
+
 export const metadata: Metadata = {
   title: "Contact",
   description:
@@ -13,7 +15,12 @@ export const metadata: Metadata = {
 
 export default async function ContactPage() {
   const settings = await getSettings();
-  const hours = JSON.parse(settings.openingHours || "{}") as Record<string, string>;
+  let hours: Record<string, string> = {};
+  try {
+    hours = JSON.parse(settings.openingHours || "{}") as Record<string, string>;
+  } catch {
+    hours = {};
+  }
   const today = hours[new Date().toLocaleDateString("en-IN", { weekday: "long" }).toLowerCase()];
 
   return (

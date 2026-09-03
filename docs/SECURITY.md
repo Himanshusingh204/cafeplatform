@@ -21,8 +21,9 @@
 
 ## Rate Limiting
 
-- `lib/rate-limit` token-bucket limiter. Applied to login, contact, admin mutations, public reads.
-- Limits configurable in `config/limits.ts`. Production note: swap to Redis-backed limiter.
+- `lib/rate-limit` token-bucket limiter with Upstash Redis support (async) and in-memory fallback.
+- Applied to login, contact, admin mutations, public reads.
+- Limits configurable in `config/limits.ts`.
 
 ## Input Validation
 
@@ -56,6 +57,7 @@
 
 ## CSRF
 
+- HMAC-signed CSRF tokens (`lib/security/csrf.ts`) with HttpOnly cookies.
 - SameSite=Lax cookies + origin/host checks on mutating requests + framework protections.
 
 ## Logging & Monitoring

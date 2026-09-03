@@ -11,8 +11,8 @@ export function fail(code: string, message: string, status: number) {
   );
 }
 
-export function validationError() {
-  return fail("VALIDATION_ERROR", "Please check the submitted fields.", 422);
+export function validationError(message = "Please check the submitted fields.") {
+  return fail("VALIDATION_ERROR", message, 422);
 }
 
 export function unauthorized() {
@@ -21,10 +21,6 @@ export function unauthorized() {
 
 export function forbidden() {
   return fail("FORBIDDEN", "You do not have permission for this action.", 403);
-}
-
-export function notFound() {
-  return fail("NOT_FOUND", "The requested resource was not found.", 404);
 }
 
 export function rateLimited(retryAfterMs = 0) {
@@ -36,8 +32,4 @@ export function rateLimited(retryAfterMs = 0) {
 
 export function serverError() {
   return fail("SERVER_ERROR", "Something went wrong. Please try again.", 500);
-}
-
-export function conflict(message = "This record already exists.") {
-  return fail("CONFLICT", message, 409);
 }

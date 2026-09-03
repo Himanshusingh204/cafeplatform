@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
 import { getSettings } from "@/lib/services/settings";
 
+export const revalidate = 300;
+
 export const metadata: Metadata = {
   title: "Terms & Conditions",
   description: "The terms that apply when you use this website or visit our café.",

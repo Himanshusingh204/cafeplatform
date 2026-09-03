@@ -47,7 +47,7 @@ describe("mass-assignment protection", () => {
     const contact = contactMessageSchema.safeParse({
       name: "Test Sender",
       email: "sender@test.example",
-      subject: "Hello",
+      subject: "Inquiry about reserving a table",
       message: "A message body that is long enough.",
       isAdmin: true,
       status: "REPLIED",

@@ -41,6 +41,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     "@type": "Restaurant",
     name: site.name,
     description: site.description,
+    image: [
+      `${process.env.APP_URL ?? "http://localhost:3000"}/images/placeholders/hero-placeholder.jpg`,
+      `${process.env.APP_URL ?? "http://localhost:3000"}/images/placeholders/about-placeholder.jpg`,
+      `${process.env.APP_URL ?? "http://localhost:3000"}/images/menu/butter-chicken.jpg`,
+    ],
     telephone: site.phone,
     email: site.email,
     address: {
@@ -50,19 +55,26 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       postalCode: "110016",
       addressCountry: "IN",
     },
+    geo: {
+      "@type": "GeoCoordinates",
+      latitude: "28.5535",
+      longitude: "77.1945",
+    },
     openingHours: [
       "Mo-Th 11:00-23:00",
       "Fr 11:00-23:30",
       "Sa 09:00-23:30",
       "Su 09:00-23:00",
     ],
-    servesCuisine: ["Indian", "North Indian", "Café"],
+    servesCuisine: ["Indian", "North Indian", "Tandoori", "Mughlai", "Café"],
     priceRange: "₹₹",
+    menu: `${process.env.APP_URL ?? "http://localhost:3000"}/menu`,
   };
 
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${marcellus.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">

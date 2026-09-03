@@ -43,6 +43,31 @@ enum ActivityAction {
   FEATURE
   SETTINGS_CHANGED
   MESSAGE_STATUS_CHANGED
+  RESERVATION_STATUS_CHANGED
+  ORDER_STATUS_CHANGED
+  REVIEW_MODERATED
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  SEATED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PAY_AT_PICKUP
 }
 
 model Admin {
@@ -178,4 +203,92 @@ model Setting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model Reservation {
+  id              String            @id @default(uuid()) @db.Uuid
+  referenceCode   String            @unique
+  name            String
+  email           String
+  phone           String
+  guests          Int
+  date            DateTime
+  timeSlot        String
+  specialRequests String?
+  status          ReservationStatus @default(PENDING)
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([date])
+  @@index([status])
+  @@index([referenceCode])
+}
+
+model Order {
+  id                  String        @id @default(uuid()) @db.Uuid
+  orderNumber         String        @unique
+  customerName        String
+  customerEmail       String
+  customerPhone       String
+  pickupTime          String
+  specialInstructions String?
+  subtotal            Decimal       @db.Decimal(10, 2)
+  tax                 Decimal       @db.Decimal(10, 2)
+  discount            Decimal       @default(0) @db.Decimal(10, 2)
+  total               Decimal       @db.Decimal(10, 2)
+  paymentStatus       PaymentStatus @default(PENDING)
+  orderStatus         OrderStatus   @default(PENDING)
+  couponCode          String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  items OrderItem[]
+
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id       String  @id @default(uuid()) @db.Uuid
+  orderId  String  @db.Uuid
+  dishId   String? @db.Uuid
+  dishName String
+  quantity Int
+  price    Decimal @db.Decimal(10, 2)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model Review {
+  id           String   @id @default(uuid()) @db.Uuid
+  customerName String
+  rating       Int      @default(5)
+  title        String
+  comment      String
+  dishSlug     String?
+  isApproved   Boolean  @default(false)
+  isFeatured   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isApproved])
+  @@index([isFeatured])
+  @@index([createdAt])
+}
+
+model Coupon {
+  id              String    @id @default(uuid()) @db.Uuid
+  code            String    @unique
+  discountPercent Int
+  minOrder        Decimal?  @db.Decimal(10, 2)
+  isActive        Boolean   @default(true)
+  validUntil      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([code])
+  @@index([isActive])
 }

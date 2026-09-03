@@ -99,8 +99,16 @@
   .heading-display {
     font-family: var(--font-display);
     font-weight: 400;
-    letter-spacing: 0.005em;
+    letter-spacing: -0.01em;
     line-height: 1.08;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.22em] text-primary;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 
   .text-balance {
@@ -109,5 +117,31 @@
 
   .text-pretty {
     text-wrap: pretty;
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+  }
+
+  /* Bespoke warm scrollbar */
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--background);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--primary) 25%, var(--border));
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
   }
 }

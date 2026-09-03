@@ -9,8 +9,8 @@ import { categoryInputSchema } from "@/lib/validation/schemas";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/services/menu";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
-function guardMutation(adminId: string): string | null {
-  const limiter = rateLimit(`admin:${adminId}`, limits.adminMutation.max, limits.adminMutation.windowMs);
+async function guardMutation(adminId: string): Promise<string | null> {
+  const limiter = await rateLimit(`admin:${adminId}`, limits.adminMutation.max, limits.adminMutation.windowMs);
   return limiter.success ? null : "Too many changes in a short time. Please wait a moment.";
 }
 
@@ -24,7 +24,7 @@ function firstIssue(error: unknown): string {
 
 export async function saveCategoryAction(input: Record<string, unknown>): Promise<ActionState> {
   const admin = await requirePermission(permissions.EDIT_MENU);
-  const blocked = guardMutation(admin.id);
+  const blocked = await guardMutation(admin.id);
   if (blocked) return { ok: false, error: blocked };
 
   const parsed = categoryInputSchema.safeParse(input);
@@ -53,7 +53,7 @@ export async function saveCategoryAction(input: Record<string, unknown>): Promis
 
 export async function deleteCategoryAction(id: string): Promise<ActionState> {
   const admin = await requirePermission(permissions.DELETE_MENU);
-  const blocked = guardMutation(admin.id);
+  const blocked = await guardMutation(admin.id);
   if (blocked) return { ok: false, error: blocked };
 
   try {

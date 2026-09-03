@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { DishManager, type AdminDishRow } from "@/components/admin/dish-manager";
 import { listDishesAdmin, listCategoriesAdmin } from "@/lib/services/menu";
-import { hasPermission } from "@/config/roles";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { requirePermission } from "@/lib/auth/guards";
 import { listQuerySchema } from "@/lib/validation/schemas";
 

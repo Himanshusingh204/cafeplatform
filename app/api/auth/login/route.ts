@@ -6,13 +6,13 @@ import { loginSchema } from "@/lib/validation/schemas";
 import { limits } from "@/config/limits";
 import { logAction } from "@/lib/services/audit";
 import { checkOrigin, getClientIp, getIpHash } from "@/lib/api/request";
-import { fail, ok, rateLimited, unauthorized } from "@/lib/api/response";
+import { fail, ok, rateLimited, unauthorized, forbidden } from "@/lib/api/response";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  if (!(await checkOrigin(request))) return unauthorized();
+  if (!(await checkOrigin(request))) return forbidden();
 
   const ipKey = (await getClientIp()) ?? "unknown";
 
@@ -21,10 +21,10 @@ export async function POST(request: Request) {
 
   const { email, password } = parsed.data;
 
-  const limiter = rateLimit(`login:${ipKey}`, limits.login.max, limits.login.windowMs);
+  const limiter = await rateLimit(`login:${ipKey}`, limits.login.max, limits.login.windowMs);
   if (!limiter.success) return rateLimited(limiter.retryAfterMs);
 
-  const accountLimiter = rateLimit(`login-account:${email}`, limits.login.max, limits.login.windowMs);
+  const accountLimiter = await rateLimit(`login-account:${email}`, limits.login.max, limits.login.windowMs);
   if (!accountLimiter.success) return rateLimited(accountLimiter.retryAfterMs);
 
   const admin = await db.admin.findUnique({ where: { email } });

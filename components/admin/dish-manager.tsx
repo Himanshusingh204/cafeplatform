@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { ImageUploader } from "@/components/admin/image-uploader";
+import { formatPrice } from "@/lib/utils/format";
 import {
   saveDishAction,
   toggleDishAvailabilityAction,
@@ -188,12 +190,14 @@ export function DishManager({
                     </div>
                   </td>
                   <td className="px-5 py-3 text-muted-foreground">{dish.categoryName}</td>
-                  <td className="px-5 py-3 whitespace-nowrap">₹{dish.price}</td>
+                  <td className="px-5 py-3 whitespace-nowrap">{formatPrice(dish.price)}</td>
                   <td className="px-5 py-3">
                     <button
                       type="button"
                       onClick={() =>
-                        toggleDishAvailabilityAction(dish.id, !dish.isAvailable).then(() => router.refresh())
+                        toggleDishAvailabilityAction(dish.id, !dish.isAvailable)
+                          .then(() => router.refresh())
+                          .catch(() => setError("Could not update availability."))
                       }
                       aria-pressed={dish.isAvailable}
                       className="cursor-pointer"
@@ -209,7 +213,9 @@ export function DishManager({
                       <button
                         type="button"
                         onClick={() =>
-                          toggleDishFeaturedAction(dish.id, !dish.isFeatured).then(() => router.refresh())
+                          toggleDishFeaturedAction(dish.id, !dish.isFeatured)
+                            .then(() => router.refresh())
+                            .catch(() => setError("Could not update featured status."))
                         }
                         aria-pressed={dish.isFeatured}
                         title={dish.isFeatured ? "Remove from featured" : "Mark as featured"}
@@ -345,11 +351,29 @@ export function DishManager({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="dish-image">Image path</Label>
-              <Input id="dish-image" name="image" maxLength={500} placeholder="/images/menu/…" defaultValue={editing?.image ?? ""} />
-            </div>
+          <div className="space-y-2">
+            <Label className="font-medium">Dish Photography</Label>
+            <ImageUploader
+              name="image"
+              defaultValue={editing?.image ?? ""}
+              folder="dishes"
+              presetImages={[
+                { name: "Butter Chicken", path: "/images/menu/butter-chicken.jpg" },
+                { name: "Paneer Tikka", path: "/images/menu/paneer-tikka.jpg" },
+                { name: "Dal Makhani", path: "/images/menu/dal-makhani.jpg" },
+                { name: "Biryani", path: "/images/menu/chicken-biryani.jpg" },
+                { name: "Garlic Naan", path: "/images/menu/garlic-naan.jpg" },
+                { name: "Lachha Paratha", path: "/images/menu/lachha-paratha.jpg" },
+                { name: "Hara Bhara Kebab", path: "/images/menu/hara-bhara-kebab.jpg" },
+                { name: "Kulfi Falooda", path: "/images/menu/kulfi-falooda.jpg" },
+                { name: "Gulab Jamun", path: "/images/menu/gulab-jamun.jpg" },
+                { name: "Masala Chai", path: "/images/menu/masala-chai.jpg" },
+                { name: "Cold Coffee", path: "/images/menu/cold-coffee.jpg" },
+              ]}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="dish-prep">Prep time (min)</Label>
               <Input id="dish-prep" name="preparationTime" type="number" min="1" max="480" defaultValue={editing?.preparationTime ?? ""} />
@@ -411,7 +435,7 @@ export function DishManager({
             </p>
           ) : null}
 
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
+          <div className="sticky bottom-0 -mx-6 mt-6 flex justify-end gap-3 border-t border-border bg-card px-6 py-4">
             <Button
               type="button"
               variant="outline"
@@ -431,8 +455,8 @@ export function DishManager({
 
       <Modal open={deleting !== null} onClose={() => setDeleting(null)} title="Delete dish">
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Delete <span className="font-medium text-foreground">{deleting?.name}</span>? It will be
-          removed from the public menu. You can contact support for permanent removal.
+          Remove <span className="font-medium text-foreground">{deleting?.name}</span> from the menu?
+          It will be hidden from the public site. You can recreate it anytime.
         </p>
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="outline" onClick={() => setDeleting(null)}>
