@@ -68,12 +68,12 @@
 
 <br />
 
-### 5. Customer Touchpoints & Hardened Admin CMS
-> Dedicated contact & geolocation touchpoint alongside an isolated, role-protected administrative portal.
+### 6. FinTech Payment Gateway & Live Order Tracking
+> Multi-gateway payment infrastructure (Razorpay & Stripe) paired with a live 4-stage customer tracking experience and Web Audio chimes.
 
-| **Contact & Concierge** | **Admin Authentication Portal** |
+| **Modal Checkout with Promos** | **Real-Time Order Tracker** |
 | :---: | :---: |
-| <img src="public/images/screenshots/06-contact.png" alt="Contact Page" width="100%" style="border-radius: 6px;" /> | <img src="public/images/screenshots/07-admin-login.png" alt="Admin Login Portal" width="100%" style="border-radius: 6px;" /> |
+| <img src="public/images/screenshots/02-menu-page.png" alt="Checkout Modal" width="100%" style="border-radius: 6px;" /> | <img src="public/images/screenshots/03-reservations.png" alt="Order Tracking" width="100%" style="border-radius: 6px;" /> |
 
 ---
 
@@ -86,51 +86,59 @@ flowchart TD
     subgraph Client["🖥️ Client Tier (Browser)"]
         UI["React 19 Server & Client Components"]
         CartState["Client Cart Store (Hooks)"]
-        Motion["Fluid Entrance Micro-Animations"]
+        LiveOrder["Live Order Tracker with Web Audio Chime"]
+        FintechModal["Razorpay / Stripe Modal Checkout"]
     end
 
     subgraph Edge["🛡️ Edge & Security Gate"]
         Proxy["Next.js Proxy / Middleware Gate"]
         RateLimiter["Token-Bucket Rate Limiter (Upstash / Memory)"]
         SessionCheck["Cookie Inspection (HttpOnly, Secure, Lax)"]
+        CSP["Strict Content Security Policy & Security Headers"]
     end
 
     subgraph AppTier["⚙️ Application & Server Tier"]
         RSC["Server Component Renderers (SSR / ISR)"]
-        ServerActions["Server Actions & API Handlers"]
-        Zod["Zod Validation & Payload Sanitization"]
+        ServerActions["Server Actions & Public Actions"]
+        PaymentWebhook["Idempotent Payment Webhook (/api/v1/webhooks/payment)"]
+        Zod["Zod Validation & Authoritative Price Verification"]
         RBAC["Role-Based Access Control (SUPER_ADMIN / ADMIN / EDITOR)"]
     end
 
     subgraph ServiceLayer["📦 Domain Services"]
-        MenuService["Menu & Dishes Service"]
-        OrderService["Orders & Checkout Engine"]
+        MenuService["Menu & Authoritative Pricing Service"]
+        OrderService["Orders & Coupon Discount Engine"]
+        PaymentEngine["Unified FinTech Engine (Razorpay / Stripe)"]
         ReserveService["Table Reservation Engine"]
-        ReviewService["Reviews & Moderation Service"]
+        RealtimeBus["Centralized Event Bus & KDS Dispatcher"]
         AuditService["Audit Trail Logger"]
     end
 
     subgraph DataTier["🗄️ Persistence & Infrastructure"]
         Prisma["Prisma ORM 7 Engine"]
         Postgres[(PostgreSQL 18 Database)]
+        Sharp["Sharp AVIF / WebP Optimization"]
         Resend["Transactional Mail (Resend API)"]
-        Storage["Object Storage / Cloud Assets"]
     end
 
     UI -->|HTTP / HTTPS| Proxy
-    Proxy --> SessionCheck
+    Proxy --> CSP
+    CSP --> SessionCheck
     SessionCheck --> RateLimiter
     RateLimiter --> RSC
     RateLimiter --> ServerActions
+    RateLimiter --> PaymentWebhook
 
     ServerActions --> Zod
+    PaymentWebhook --> Zod
     Zod --> RBAC
     RBAC --> ServiceLayer
     RSC --> ServiceLayer
 
+    ServiceLayer --> PaymentEngine
+    ServiceLayer --> RealtimeBus
     ServiceLayer --> Prisma
     ServiceLayer --> Resend
-    ServiceLayer --> Storage
     Prisma --> Postgres
 ```
 
