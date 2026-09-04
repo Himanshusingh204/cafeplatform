@@ -57,12 +57,17 @@ export async function POST(req: NextRequest) {
   // Handle successful capture events
   if (eventType === "payment.captured" || eventType === "order.paid") {
     try {
+      if (!appOrderId && !gatewayOrderId) {
+        logger.warn({ event: "webhook.payment.missing_identifiers", eventType });
+        return NextResponse.json({ received: true, note: "No order identifiers found in payload" }, { status: 200 });
+      }
+
       // Find matching order
       const order = await db.order.findFirst({
         where: {
           OR: [
-            appOrderId ? { id: appOrderId } : { gatewayOrderId },
-            { gatewayOrderId: gatewayOrderId || undefined },
+            ...(appOrderId ? [{ id: appOrderId }] : []),
+            ...(gatewayOrderId ? [{ gatewayOrderId }] : []),
           ],
         },
         include: { items: true },

@@ -133,7 +133,16 @@ export function verifyRazorpaySignature(params: {
   signature: string;
 }): boolean {
   const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) return true; // Accept in test mode if secret not configured
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error({
+        event: "payment.signature_verify_missing_secret",
+        message: "RAZORPAY_KEY_SECRET is required in production environments",
+      });
+      return false;
+    }
+    return true; // Accept only in local development mock mode
+  }
 
   try {
     const payload = `${params.orderId}|${params.paymentId}`;

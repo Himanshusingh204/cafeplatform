@@ -71,6 +71,19 @@ describe("FinTech & Payment Engine", () => {
 
       expect(verified).toBe(false);
     });
+
+    it("rejects verification in production if RAZORPAY_KEY_SECRET is missing", () => {
+      delete process.env.RAZORPAY_KEY_SECRET;
+      process.env.NODE_ENV = "production";
+
+      const verified = verifyRazorpaySignature({
+        orderId: "order_123",
+        paymentId: "pay_123",
+        signature: "some_sig",
+      });
+
+      expect(verified).toBe(false);
+    });
   });
 
   describe("verifyRazorpayWebhookSignature", () => {

@@ -67,17 +67,70 @@ export async function createOrder(input: CreateOrderInput) {
     throw new Error("Order must have at least one item.");
   }
 
-  const subtotal = input.items.reduce(
+  // Security Check: Look up authoritative dishes from the database when dishId is supplied.
+  // This prevents attackers from tampering with client prices (e.g. buying a ₹350 dish for ₹1).
+  const dishIds = input.items
+    .map((item) => item.dishId)
+    .filter((id): id is string => Boolean(id));
+
+  const dbDishes =
+    dishIds.length > 0
+      ? await db.dish.findMany({
+          where: { id: { in: dishIds }, deletedAt: null },
+          select: { id: true, name: true, price: true, isAvailable: true },
+        })
+      : [];
+
+  const dishMap = new Map(dbDishes.map((d) => [d.id, d]));
+
+  const validatedItems = input.items.map((item) => {
+    const qty = Math.floor(Number(item.quantity));
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) {
+      throw new Error(`Invalid quantity for "${item.dishName}". Must be between 1 and 99.`);
+    }
+
+    let authoritativePrice = Number(item.price);
+    let authoritativeName = item.dishName.trim();
+
+    if (item.dishId) {
+      const dbDish = dishMap.get(item.dishId);
+      if (!dbDish) {
+        throw new Error(`Dish "${item.dishName}" is no longer available.`);
+      }
+      if (!dbDish.isAvailable) {
+        throw new Error(`Dish "${dbDish.name}" is currently marked out of stock.`);
+      }
+      authoritativePrice = Number(dbDish.price);
+      authoritativeName = dbDish.name;
+    } else {
+      if (typeof authoritativePrice !== "number" || isNaN(authoritativePrice) || authoritativePrice <= 0) {
+        throw new Error(`Invalid price for item "${item.dishName}".`);
+      }
+    }
+
+    return {
+      dishId: item.dishId || null,
+      dishName: authoritativeName,
+      quantity: qty,
+      price: authoritativePrice,
+    };
+  });
+
+  const subtotal = validatedItems.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
+
+  if (subtotal <= 0) {
+    throw new Error("Order subtotal must be greater than zero.");
+  }
 
   let discount = 0;
   let appliedCoupon: string | null = null;
   if (input.couponCode) {
     const couponResult = await validateCoupon(input.couponCode, subtotal);
     if (couponResult.valid && couponResult.discountAmount) {
-      discount = couponResult.discountAmount;
+      discount = Math.min(subtotal, couponResult.discountAmount);
       appliedCoupon = couponResult.code ?? null;
     }
   }
@@ -88,8 +141,9 @@ export async function createOrder(input: CreateOrderInput) {
   const total = taxableAmount + tax;
 
   const orderNumber = generateOrderNumber();
+  // Online orders start in PENDING state until confirmed via gateway signature or webhook
   const paymentStatus: PaymentStatus =
-    input.paymentMethod === "CARD_ONLINE" ? "PAID" : "PAY_AT_PICKUP";
+    input.paymentMethod === "CARD_ONLINE" ? "PENDING" : "PAY_AT_PICKUP";
 
   const order = await db.order.create({
     data: {
@@ -107,8 +161,8 @@ export async function createOrder(input: CreateOrderInput) {
       orderStatus: "PENDING",
       couponCode: appliedCoupon,
       items: {
-        create: input.items.map((item) => ({
-          dishId: item.dishId || null,
+        create: validatedItems.map((item) => ({
+          dishId: item.dishId,
           dishName: item.dishName,
           quantity: item.quantity,
           price: item.price,

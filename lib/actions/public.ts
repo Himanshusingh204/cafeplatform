@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
+import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit/limiter";
 import { createReservation, getReservationByCode, type CreateReservationInput } from "@/lib/services/reservations";
 import { createOrder, validateCoupon, type CreateOrderInput } from "@/lib/services/orders";
@@ -13,9 +14,26 @@ export interface PublicActionResult<T = unknown> {
   data?: T;
 }
 
+async function getClientIp(): Promise<string> {
+  try {
+    const headerList = await headers();
+    const forwarded = headerList.get("x-forwarded-for");
+    if (forwarded) return forwarded.split(",")[0].trim();
+    return headerList.get("x-real-ip") || "unknown-ip";
+  } catch {
+    return "unknown-ip";
+  }
+}
+
 export async function submitReservationAction(
   input: CreateReservationInput
 ): Promise<PublicActionResult<{ referenceCode: string }>> {
+  const ip = await getClientIp();
+  const ipLimiter = await rateLimit(`reservation:ip:${ip}`, 10, 10 * 60 * 1000);
+  if (!ipLimiter.success) {
+    return { ok: false, error: "Too many reservation requests from this connection. Please try again shortly." };
+  }
+
   const limiter = await rateLimit(`reservation:${input.email}`, 5, 10 * 60 * 1000);
   if (!limiter.success) {
     return { ok: false, error: "Too many reservation requests. Please try again shortly." };
@@ -72,17 +90,20 @@ export async function lookupReservationAction(
   status: string;
   specialRequests?: string | null;
 }>> {
-  if (!referenceCode || referenceCode.trim().length < 4) {
+  const cleanCode = referenceCode?.trim().toUpperCase();
+  if (!cleanCode || !/^[A-Z0-9-]{4,30}$/.test(cleanCode)) {
     return { ok: false, error: "Please enter a valid booking reference code." };
   }
 
-  const limiter = await rateLimit(`lookup:${referenceCode.trim()}`, 10, 5 * 60 * 1000);
-  if (!limiter.success) {
+  // Rate limit by client IP to defend against brute-force reservation code enumeration
+  const ip = await getClientIp();
+  const ipLimiter = await rateLimit(`lookup:ip:${ip}`, 15, 60 * 1000);
+  if (!ipLimiter.success) {
     return { ok: false, error: "Too many lookup requests. Please wait a moment." };
   }
 
   try {
-    const reservation = await getReservationByCode(referenceCode.trim());
+    const reservation = await getReservationByCode(cleanCode);
     if (!reservation) {
       return { ok: false, error: "No reservation found with this reference code." };
     }
@@ -106,12 +127,30 @@ export async function lookupReservationAction(
 }
 
 export async function checkCouponAction(code: string, subtotal: number) {
-  return await validateCoupon(code, subtotal);
+  const cleanCode = code?.trim().toUpperCase();
+  if (!cleanCode || cleanCode.length < 2) {
+    return { valid: false, message: "Invalid coupon code format." };
+  }
+
+  // Rate limit coupon checking by IP to prevent dictionary / brute-force attacks on promo codes
+  const ip = await getClientIp();
+  const limiter = await rateLimit(`coupon:ip:${ip}`, 20, 60 * 1000);
+  if (!limiter.success) {
+    return { valid: false, message: "Too many coupon attempts. Please wait a moment." };
+  }
+
+  return await validateCoupon(cleanCode, subtotal);
 }
 
 export async function submitTakeawayOrderAction(
   input: CreateOrderInput
 ): Promise<PublicActionResult<{ id: string; orderNumber: string }>> {
+  const ip = await getClientIp();
+  const ipLimiter = await rateLimit(`order:ip:${ip}`, 15, 10 * 60 * 1000);
+  if (!ipLimiter.success) {
+    return { ok: false, error: "Too many order submissions from this connection. Please wait a few minutes." };
+  }
+
   const limiter = await rateLimit(`order:${input.customerEmail}`, 10, 10 * 60 * 1000);
   if (!limiter.success) {
     return { ok: false, error: "Too many order submissions. Please wait a few minutes." };

@@ -77,17 +77,28 @@ export async function verifyClientPaymentAction(input: {
       return { ok: false, error: "Order not found." };
     }
 
-    // Verify cryptographic signature if razorpay order ID is present
-    if (order.gatewayOrderId) {
-      const isValid = verifyRazorpaySignature({
-        orderId: order.gatewayOrderId,
-        paymentId: input.paymentId,
-        signature: input.signature,
-      });
+    // Idempotent: return success if already marked as paid
+    if (order.paymentStatus === "PAID") {
+      return { ok: true, data: { orderId: order.id } };
+    }
 
-      if (!isValid) {
-        return { ok: false, error: "Payment verification failed: Invalid signature." };
-      }
+    // Security Guard: An order cannot be verified as paid online without an active gateway order ID
+    if (!order.gatewayOrderId) {
+      return {
+        ok: false,
+        error: "Payment verification failed: No active online payment session found for this order.",
+      };
+    }
+
+    // Verify cryptographic HMAC signature
+    const isValid = verifyRazorpaySignature({
+      orderId: order.gatewayOrderId,
+      paymentId: input.paymentId,
+      signature: input.signature,
+    });
+
+    if (!isValid) {
+      return { ok: false, error: "Payment verification failed: Invalid signature." };
     }
 
     const updatedOrder = await db.order.update({
