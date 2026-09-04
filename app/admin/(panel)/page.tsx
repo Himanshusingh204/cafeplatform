@@ -5,16 +5,15 @@ import {
   FolderOpen,
   Mail,
   Star,
-  Image as ImageIcon,
   Plus,
   Settings,
-  Activity,
   Flame,
   Leaf,
   Clock,
   ExternalLink,
   Calendar,
   ShoppingBag,
+  Tag,
 } from "lucide-react";
 import {
   getDashboardStats,
@@ -79,160 +78,164 @@ export default async function AdminDashboardPage() {
 
   const cards = [
     {
-      label: "Total Dishes",
-      value: stats.totalDishes,
-      subtext: `${stats.availableDishes} available · ${stats.hiddenDishes} hidden`,
-      icon: ChefHat,
-      href: "/admin/dishes",
-      color: "text-primary",
-    },
-    {
-      label: "Table Bookings",
-      value: resStats.todayCount,
-      subtext: resStats.pendingCount > 0 ? `${resStats.pendingCount} pending confirmation` : "Today's bookings",
-      badge: resStats.pendingCount > 0 ? `${resStats.pendingCount} PENDING` : undefined,
-      icon: Calendar,
-      href: "/admin/reservations",
-      color: "text-blue-500",
-    },
-    {
-      label: "Kitchen Orders",
+      label: "Live Kitchen Queue",
       value: orderStats.activeOrders,
-      subtext: `${orderStats.completedToday} completed today`,
-      badge: orderStats.activeOrders > 0 ? "LIVE" : undefined,
+      subtext: `${orderStats.completedToday} fulfilled today`,
+      badge: orderStats.activeOrders > 0 ? "ACTION REQ" : "ALL CLEAR",
+      badgeColor: orderStats.activeOrders > 0 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-success/15 text-success",
       icon: ShoppingBag,
       href: "/admin/orders",
       color: "text-amber-500",
     },
     {
-      label: "Inquiries",
+      label: "Table Bookings",
+      value: resStats.todayCount,
+      subtext: resStats.pendingCount > 0 ? `${resStats.pendingCount} pending confirmation` : "Today's dining guests",
+      badge: resStats.pendingCount > 0 ? `${resStats.pendingCount} PENDING` : "ACTIVE",
+      badgeColor: resStats.pendingCount > 0 ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground",
+      icon: Calendar,
+      href: "/admin/reservations",
+      color: "text-blue-500",
+    },
+    {
+      label: "Menu Items",
+      value: stats.totalDishes,
+      subtext: `${stats.availableDishes} live · ${stats.hiddenDishes} hidden`,
+      icon: ChefHat,
+      href: "/admin/dishes",
+      color: "text-primary",
+    },
+    {
+      label: "Promos & Coupons",
+      value: "Manage",
+      subtext: "Discounts & promotional codes",
+      icon: Tag,
+      href: "/admin/coupons",
+      color: "text-emerald-500",
+    },
+    {
+      label: "Customer Inquiries",
       value: stats.totalMessages,
-      subtext: stats.newMessages > 0 ? `${stats.newMessages} unread inquiries` : "All messages reviewed",
+      subtext: stats.newMessages > 0 ? `${stats.newMessages} unread messages` : "All messages reviewed",
       badge: stats.newMessages > 0 ? `${stats.newMessages} NEW` : undefined,
+      badgeColor: "bg-primary/15 text-primary",
       icon: Mail,
       href: "/admin/messages",
       color: "text-primary",
     },
     {
-      label: "Active Categories",
+      label: "Sections & Categories",
       value: stats.activeCategories,
-      subtext: "Menu sections",
+      subtext: "Organized menu courses",
       icon: FolderOpen,
       href: "/admin/categories",
       color: "text-indigo-500",
-    },
-    {
-      label: "Gallery Photos",
-      value: stats.galleryPhotos,
-      subtext: "Published café photos",
-      icon: ImageIcon,
-      href: "/admin/gallery",
-      color: "text-emerald-500",
     },
   ];
 
   return (
     <div className="space-y-8">
-      {/* Top Welcome Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="heading-display text-3xl">Dashboard</h1>
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-primary">
-              {admin.role.replace("_", " ")}
-            </span>
+      {/* Executive Header Banner */}
+      <div className="rounded-2xl border border-border bg-linear-to-r from-card via-card to-muted/40 p-6 md:p-8 shadow-card">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="heading-display text-2xl md:text-3xl font-bold text-foreground">
+                Executive Operations Control
+              </h1>
+              <span className="rounded-full bg-primary/10 border border-primary/20 px-3 py-0.5 text-xs font-semibold uppercase tracking-wider text-primary">
+                {admin.role.replace("_", " ")}
+              </span>
+            </div>
+            <p className="text-xs md:text-sm text-muted-foreground">
+              Real-time dispatch, table reservations, and menu management for <strong className="text-foreground">{settings.cafeName}</strong>.
+            </p>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Welcome back, <span className="font-medium text-foreground">{admin.name}</span>. Real-time operations at {settings.cafeName}.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-            </span>
-            <span>Database Live</span>
+          {/* Quick Real-Time Status Pills */}
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card/80 px-3.5 py-2 text-muted-foreground shadow-xs">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+              </span>
+              <span className="font-medium text-foreground">PostgreSQL & Realtime Online</span>
+            </div>
             {hoursToday ? (
-              <>
-                <span className="text-border">|</span>
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                <span>Today: {hoursToday}</span>
-              </>
+              <div className="flex items-center gap-1.5 rounded-xl border border-border bg-card/80 px-3.5 py-2 text-muted-foreground shadow-xs">
+                <Clock className="h-3.5 w-3.5 text-primary" />
+                <span>Today: <strong className="text-foreground">{hoursToday}</strong></span>
+              </div>
             ) : null}
+            <Link
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
+            >
+              <span>Customer Site</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
           </div>
-
-          <Link
-            href="/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-          >
-            <span>Live Site</span>
-            <ExternalLink className="h-3 w-3" />
-          </Link>
         </div>
-      </div>
 
-      {/* Quick Action Buttons */}
-      <div className="flex flex-wrap gap-2.5">
-        <Link
-          href="/admin/reservations"
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-        >
-          <Calendar className="h-3.5 w-3.5" />
-          Table Bookings
-        </Link>
-        <Link
-          href="/admin/orders"
-          className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-medium text-white shadow-sm transition-colors hover:bg-amber-700"
-        >
-          <ShoppingBag className="h-3.5 w-3.5" />
-          Kitchen Queue
-        </Link>
-        <Link
-          href="/admin/dishes"
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Dish
-        </Link>
-        <Link
-          href="/admin/reviews"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-        >
-          <Star className="h-3.5 w-3.5 text-amber-500" />
-          Reviews
-        </Link>
-        <Link
-          href="/admin/categories"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Categories
-        </Link>
-        <Link
-          href="/admin/gallery"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-        >
-          <ImageIcon className="h-3.5 w-3.5" />
-          Gallery Photos
-        </Link>
-        <Link
-          href="/admin/settings"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-        >
-          <Settings className="h-3.5 w-3.5" />
-          Settings
-        </Link>
-        <Link
-          href="/admin/activity"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-        >
-          <Activity className="h-3.5 w-3.5" />
-          Activity Log
-        </Link>
+        {/* Action Options Hub for Admin */}
+        <div className="mt-6 border-t border-border/70 pt-6">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Quick Action Options Hub
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+            <Link
+              href="/admin/dishes"
+              className="flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-all hover:scale-[1.02]"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="truncate">Add Dish</span>
+            </Link>
+            <Link
+              href="/admin/kds"
+              className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all hover:scale-[1.02]"
+            >
+              <Flame className="h-4 w-4 shrink-0" />
+              <span className="truncate">Kitchen KDS</span>
+            </Link>
+            <Link
+              href="/admin/coupons"
+              className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-all hover:scale-[1.02]"
+            >
+              <Tag className="h-4 w-4 shrink-0" />
+              <span className="truncate">Promos / Codes</span>
+            </Link>
+            <Link
+              href="/admin/reservations"
+              className="flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3.5 py-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-all hover:scale-[1.02]"
+            >
+              <Calendar className="h-4 w-4 shrink-0" />
+              <span className="truncate">Bookings</span>
+            </Link>
+            <Link
+              href="/admin/orders"
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              <ShoppingBag className="h-4 w-4 shrink-0 text-amber-500" />
+              <span className="truncate">Takeaways</span>
+            </Link>
+            <Link
+              href="/admin/reviews"
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              <Star className="h-4 w-4 shrink-0 text-amber-500" />
+              <span className="truncate">Reviews</span>
+            </Link>
+            <Link
+              href="/admin/settings"
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              <Settings className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">Settings</span>
+            </Link>
+          </div>
+        </div>
       </div>
 
       {/* Key Metric Cards */}
@@ -241,23 +244,25 @@ export default async function AdminDashboardPage() {
           <Link
             key={card.label}
             href={card.href}
-            className="group relative rounded-xl border border-border bg-card p-5 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
+            className="group relative flex flex-col justify-between rounded-xl border border-border bg-card p-4 md:p-5 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
           >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-muted-foreground">{card.label}</span>
-              <div className="rounded-lg bg-muted/60 p-2 transition-colors group-hover:bg-primary/10">
-                <card.icon className={`h-4 w-4 ${card.color}`} aria-hidden="true" />
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground truncate">{card.label}</span>
+                <div className="rounded-lg bg-muted/70 p-2 transition-colors group-hover:bg-primary/10">
+                  <card.icon className={`h-4 w-4 ${card.color}`} aria-hidden="true" />
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-baseline gap-2">
+                <p className="heading-display text-2xl font-bold text-foreground">{card.value}</p>
+                {card.badge ? (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${card.badgeColor || "bg-primary/15 text-primary"}`}>
+                    {card.badge}
+                  </span>
+                ) : null}
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <p className="heading-display text-3xl">{card.value}</p>
-              {card.badge ? (
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                  {card.badge}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">{card.subtext}</p>
+            <p className="mt-2 text-[11px] text-muted-foreground leading-tight">{card.subtext}</p>
           </Link>
         ))}
       </div>

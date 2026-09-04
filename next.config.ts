@@ -11,7 +11,7 @@ const contentSecurityPolicy = [
   "img-src 'self' blob: data: https://*.razorpay.com https://*.stripe.com",
   "font-src 'self'",
   "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://api.stripe.com",
-  "frame-src 'self' https://api.razorpay.com https://js.stripe.com",
+  "frame-src 'self' https://api.razorpay.com https://js.stripe.com https://www.google.com https://maps.google.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

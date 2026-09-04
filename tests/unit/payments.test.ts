@@ -74,7 +74,7 @@ describe("FinTech & Payment Engine", () => {
 
     it("rejects verification in production if RAZORPAY_KEY_SECRET is missing", () => {
       delete process.env.RAZORPAY_KEY_SECRET;
-      process.env.NODE_ENV = "production";
+      vi.stubEnv("NODE_ENV", "production");
 
       const verified = verifyRazorpaySignature({
         orderId: "order_123",
