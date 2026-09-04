@@ -19,6 +19,7 @@ import {
   Calendar,
   ShoppingBag,
   Star,
+  Tag,
 } from "lucide-react";
 import { adminNavigation } from "@/config/navigation";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +32,7 @@ const navIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   "/admin/orders": ShoppingBag,
   "/admin/dishes": UtensilsCrossed,
   "/admin/categories": FolderOpen,
+  "/admin/coupons": Tag,
   "/admin/reviews": Star,
   "/admin/gallery": Image,
   "/admin/messages": Mail,

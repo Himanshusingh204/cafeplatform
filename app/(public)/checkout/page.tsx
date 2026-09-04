@@ -7,6 +7,7 @@ import { ArrowLeft, Clock, CreditCard, ShieldCheck, ShoppingBag, Tag, AlertCircl
 import { useCart } from "@/hooks/use-cart";
 import { formatPrice } from "@/lib/utils/format";
 import { checkCouponAction, submitTakeawayOrderAction } from "@/lib/actions/public";
+import { initiateOrderPaymentAction, verifyClientPaymentAction } from "@/lib/actions/payments";
 
 const PICKUP_TIMES = [
   "In 25–30 minutes",
@@ -84,10 +85,70 @@ export default function CheckoutPage() {
       if (!res.ok || !res.data) {
         setOrderError(res.error ?? "Failed to place order.");
         setSubmitting(false);
-      } else {
-        clearCart();
-        router.push(`/order/${res.data.id}`);
+        return;
       }
+
+      const orderId = res.data.id;
+
+      if (paymentMethod === "CARD_ONLINE") {
+        const payInit = await initiateOrderPaymentAction(orderId);
+        if (payInit.ok && payInit.data) {
+          const payData = payInit.data;
+          if (payData.provider === "RAZORPAY" && payData.keyId) {
+            // Dynamically load Razorpay SDK
+            const loaded = await new Promise<boolean>((resolve) => {
+              if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
+                return resolve(true);
+              }
+              const s = document.createElement("script");
+              s.src = "https://checkout.razorpay.com/v1/checkout.js";
+              s.onload = () => resolve(true);
+              s.onerror = () => resolve(false);
+              document.body.appendChild(s);
+            });
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const Razorpay = (window as any).Razorpay;
+            if (loaded && Razorpay) {
+              const rzp = new Razorpay({
+                key: payData.keyId,
+                amount: payData.amount,
+                currency: payData.currency,
+                name: "Spice & Saffron",
+                description: `Order ${res.data.orderNumber}`,
+                order_id: payData.gatewayOrderId,
+                prefill: {
+                  name: customerName,
+                  email: customerEmail,
+                  contact: customerPhone,
+                },
+                theme: { color: "#9A3412" },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                handler: async function (response: any) {
+                  await verifyClientPaymentAction({
+                    orderId,
+                    paymentId: response.razorpay_payment_id,
+                    signature: response.razorpay_signature,
+                  });
+                  clearCart();
+                  router.push(`/order/${orderId}`);
+                },
+                modal: {
+                  ondismiss: function () {
+                    clearCart();
+                    router.push(`/order/${orderId}`);
+                  },
+                },
+              });
+              rzp.open();
+              return;
+            }
+          }
+        }
+      }
+
+      clearCart();
+      router.push(`/order/${orderId}`);
     } catch {
       setOrderError("An unexpected error occurred. Please try again.");
       setSubmitting(false);

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Clock, MapPin, Phone, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReservationForm } from "@/components/reservations/reservation-form";
+import { ReservationLookup } from "@/components/reservations/reservation-lookup";
 
 export const metadata: Metadata = {
   title: "Reserve a Table",
@@ -23,6 +24,8 @@ export default function ReservationsPage() {
 
           {/* Guidelines & Policies */}
           <div className="space-y-6">
+            <ReservationLookup />
+
             <div className="rounded-2xl border border-border bg-muted/40 p-6 space-y-4">
               <h3 className="font-semibold text-foreground flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />

@@ -54,16 +54,41 @@ export async function POST(req: NextRequest) {
     const uniqueId = crypto.randomBytes(6).toString("hex");
     const filename = `${safeFolder}-${Date.now()}-${uniqueId}.${ext}`;
 
-    const uploadsDir = path.join(process.cwd(), "public", "uploads", safeFolder);
-    await mkdir(uploadsDir, { recursive: true });
-
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const filePath = path.join(uploadsDir, filename);
 
-    await writeFile(filePath, buffer);
+    let publicUrl = "";
 
-    const publicUrl = `/uploads/${safeFolder}/${filename}`;
+    // 1. Cloud storage via Vercel Blob if configured
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const blobModule = "@vercel/blob";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { put } = (await import(blobModule)) as { put: any };
+        const blob = await put(`uploads/${safeFolder}/${filename}`, buffer, {
+          access: "public",
+          contentType: file.type,
+        });
+        publicUrl = blob.url;
+      } catch (blobErr) {
+        console.warn("Vercel Blob upload failed, attempting fallback:", blobErr);
+      }
+    }
+
+    // 2. Local filesystem write if writable
+    if (!publicUrl) {
+      try {
+        const uploadsDir = path.join(process.cwd(), "public", "uploads", safeFolder);
+        await mkdir(uploadsDir, { recursive: true });
+        const filePath = path.join(uploadsDir, filename);
+        await writeFile(filePath, buffer);
+        publicUrl = `/uploads/${safeFolder}/${filename}`;
+      } catch (fsErr) {
+        // 3. Fallback for read-only serverless lambda container
+        console.warn("Filesystem read-only on serverless, utilizing data URL fallback:", fsErr);
+        publicUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
+      }
+    }
 
     return NextResponse.json({
       success: true,

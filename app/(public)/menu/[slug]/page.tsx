@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Clock, Flame } from "lucide-react";
 import { DishCard } from "@/components/menu/dish-card";
 import { DishTags } from "@/components/menu/dish-tags";
+import { DishAddButton } from "@/components/menu/dish-add-button";
 import { getDishBySlugCached, getRelatedDishes } from "@/lib/services/menu";
 import { formatPrice } from "@/lib/utils/format";
 
@@ -135,6 +136,16 @@ export default async function DishPage({ params }: DishPageProps) {
               </div>
             ) : null}
           </dl>
+
+          <DishAddButton
+            dish={{
+              id: dish.id,
+              name: dish.name,
+              slug: dish.slug,
+              price: dish.price,
+              image: dish.image,
+            }}
+          />
         </div>
       </article>
 

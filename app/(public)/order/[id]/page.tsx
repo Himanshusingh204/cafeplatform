@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, Clock, ChefHat, PackageCheck, MapPin, Phone, ArrowLeft } from "lucide-react";
 import { getOrderById } from "@/lib/services/orders";
 import { formatPrice } from "@/lib/utils/format";
+import { OrderLiveTracker } from "@/components/order/order-live-tracker";
 
 interface OrderPageProps {
   params: Promise<{ id: string }>;
@@ -77,6 +78,8 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
             </p>
           </div>
         </div>
+
+        <OrderLiveTracker orderId={order.id} currentStatus={order.orderStatus} />
 
         {/* Live Stepper */}
         <div>

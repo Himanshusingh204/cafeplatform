@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition, useCallback } from "react";
-import { updateOrderStatusAction } from "@/app/admin/actions/orders";
+import { updateOrderStatusAction, getActiveKDSOrdersAction } from "@/app/admin/actions/orders";
 import type { OrderStatus } from "@/lib/generated/prisma/enums";
 
 export interface KDSTicketItem {
@@ -128,6 +128,28 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
     return () => {
       if (eventSource) eventSource.close();
     };
+  }, [playAlertSound]);
+
+  // Resilient multi-instance serverless fallback polling (every 12 seconds)
+  useEffect(() => {
+    const syncTickets = async () => {
+      try {
+        const latest = await getActiveKDSOrdersAction();
+        setOrders((prev) => {
+          const prevIds = new Set(prev.map((o: KDSTicket) => o.id));
+          const hasNew = latest.some((o: KDSTicket) => !prevIds.has(o.id) && o.orderStatus === "PENDING");
+          if (hasNew) {
+            playAlertSound();
+          }
+          return latest as KDSTicket[];
+        });
+      } catch {
+        // Network / silent ignore during offline or transitions
+      }
+    };
+
+    const interval = setInterval(syncTickets, 12_000);
+    return () => clearInterval(interval);
   }, [playAlertSound]);
 
   const handleAdvanceStatus = (orderId: string, nextStatus: KDSTicket["orderStatus"]) => {

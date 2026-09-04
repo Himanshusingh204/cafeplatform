@@ -2,9 +2,10 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { rateLimit } from "@/lib/rate-limit/limiter";
-import { createReservation, type CreateReservationInput } from "@/lib/services/reservations";
+import { createReservation, getReservationByCode, type CreateReservationInput } from "@/lib/services/reservations";
 import { createOrder, validateCoupon, type CreateOrderInput } from "@/lib/services/orders";
 import { createReview, type CreateReviewInput } from "@/lib/services/reviews";
+import { sendReservationConfirmation, sendOrderReceipt } from "@/lib/email/notifier";
 
 export interface PublicActionResult<T = unknown> {
   ok: boolean;
@@ -42,12 +43,65 @@ export async function submitReservationAction(
       date: new Date(input.date),
     });
 
+    sendReservationConfirmation({
+      name: reservation.name,
+      email: reservation.email,
+      referenceCode: reservation.referenceCode,
+      date: reservation.date.toISOString().split("T")[0],
+      timeSlot: reservation.timeSlot,
+      guests: reservation.guests,
+    }).catch(() => undefined);
+
     revalidatePath("/admin/reservations");
     revalidatePath("/admin");
     return { ok: true, data: { referenceCode: reservation.referenceCode } };
   } catch (error) {
     console.error("submitReservationAction error:", error);
     return { ok: false, error: "Unable to process booking right now. Please call us directly." };
+  }
+}
+
+export async function lookupReservationAction(
+  referenceCode: string
+): Promise<PublicActionResult<{
+  referenceCode: string;
+  name: string;
+  guests: number;
+  date: string;
+  timeSlot: string;
+  status: string;
+  specialRequests?: string | null;
+}>> {
+  if (!referenceCode || referenceCode.trim().length < 4) {
+    return { ok: false, error: "Please enter a valid booking reference code." };
+  }
+
+  const limiter = await rateLimit(`lookup:${referenceCode.trim()}`, 10, 5 * 60 * 1000);
+  if (!limiter.success) {
+    return { ok: false, error: "Too many lookup requests. Please wait a moment." };
+  }
+
+  try {
+    const reservation = await getReservationByCode(referenceCode.trim());
+    if (!reservation) {
+      return { ok: false, error: "No reservation found with this reference code." };
+    }
+
+    return {
+      ok: true,
+      data: {
+        referenceCode: reservation.referenceCode,
+        name: reservation.name,
+        guests: reservation.guests,
+        date: reservation.date.toISOString().split("T")[0],
+        timeSlot: reservation.timeSlot,
+        status: reservation.status,
+        specialRequests: reservation.specialRequests,
+      },
+    };
+  } catch (error) {
+    console.error("lookupReservationAction error:", error);
+    return { ok: false, error: "Failed to look up reservation details." };
   }
 }
 
@@ -75,6 +129,20 @@ export async function submitTakeawayOrderAction(
 
   try {
     const order = await createOrder(input);
+
+    sendOrderReceipt({
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      orderNumber: order.orderNumber,
+      pickupTime: order.pickupTime,
+      total: Number(order.total),
+      items: order.items.map((i) => ({
+        dishName: i.dishName,
+        quantity: i.quantity,
+        price: Number(i.price),
+      })),
+    }).catch(() => undefined);
+
     revalidatePath("/admin/orders");
     revalidatePath("/admin");
     return { ok: true, data: { id: order.id, orderNumber: order.orderNumber } };

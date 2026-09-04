@@ -286,6 +286,10 @@ model Order {
   total               Decimal       @db.Decimal(10, 2)
   paymentStatus       PaymentStatus @default(PENDING)
   orderStatus         OrderStatus   @default(PENDING)
+  paymentMethod       String?       @default("PAY_AT_PICKUP")
+  gatewayOrderId      String?
+  gatewayPaymentId    String?
+  gatewaySignature    String?
   couponCode          String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
@@ -295,6 +299,7 @@ model Order {
 
   @@index([orderStatus])
   @@index([paymentStatus])
+  @@index([gatewayOrderId])
   @@index([createdAt])
   @@index([tenantId])
 }

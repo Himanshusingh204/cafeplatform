@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "next build && playwright test",
-    "create-admin": "node scripts/create-admin.mjs"
+    "create-admin": "node scripts/create-admin.mjs",
+    "verify:prod": "node scripts/verify-deployment.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

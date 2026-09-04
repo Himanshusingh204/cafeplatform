@@ -15,6 +15,7 @@ export const adminNavigation = [
   { label: "Takeaway Orders", href: "/admin/orders" },
   { label: "Dishes", href: "/admin/dishes" },
   { label: "Categories", href: "/admin/categories" },
+  { label: "Coupons & Promos", href: "/admin/coupons" },
   { label: "Reviews", href: "/admin/reviews" },
   { label: "Gallery", href: "/admin/gallery" },
   { label: "Developers & S2S", href: "/admin/developers" },
