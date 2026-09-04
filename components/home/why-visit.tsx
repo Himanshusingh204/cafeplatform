@@ -5,26 +5,26 @@ const facts = [
   {
     icon: Sparkles,
     term: "Fresh-Roasted Spices",
-    detail: "Whole whole spices slow-roasted on thick cast-iron tawa and hand-ground every single morning.",
-    tag: "No Artificial Flavours",
+    detail: "Sun-dried whole spices slow-roasted on thick cast-iron tawas and hand-ground every single morning.",
+    tag: "Zero Preservatives",
   },
   {
     icon: Flame,
     term: "Live Clay Tandoor",
-    detail: "Lit at 8 AM over real charcoal embers. Naan and rotis go into the tandoor only the moment you order.",
-    tag: "Authentic Smoke",
+    detail: "Lit at dawn over glowing charcoal embers. Naan and rotis enter the clay bell only the moment you order.",
+    tag: "Charcoal Aromas",
   },
   {
     icon: Clock,
-    term: "16-Hour Gravies",
-    detail: "Our signature Dal Makhani & butter gravies simmer slowly through the night. Zero shortcuts or canned pastes.",
-    tag: "Slow-Food Heritage",
+    term: "16-Hour Slow Embers",
+    detail: "Our Dal Makhani simmers gently overnight in heavy copper vessels. Rich, velvety, and deeply comforting.",
+    tag: "Patience & Heritage",
   },
   {
     icon: Coffee,
     term: "Heritage Masala Chai",
-    detail: "Fresh crushed ginger, green cardamom, and Assam tea leaves brewed in small batches continuously.",
-    tag: "Unlimited Refills",
+    detail: "Fresh pounded ginger, green cardamom pods, and malty Assam tea leaves brewed in small, continuous kettles.",
+    tag: "Warm Hospitality",
   },
 ];
 

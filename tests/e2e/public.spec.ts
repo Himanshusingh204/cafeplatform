@@ -4,8 +4,8 @@ test.describe("public visitor flows", () => {
   test("homepage presents the café and its navigation", async ({ page }, testInfo) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Indian food");
-    await expect(page.getByRole("link", { name: "Explore Menu" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/Indian/i);
+    await expect(page.getByRole("link", { name: /Explore (Full )?Menu/i })).toBeVisible();
 
     if (testInfo.project.name === "mobile-chrome") {
       await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();

@@ -60,6 +60,7 @@ yarn-error.log*
 .windsurf/
 AGENTS.md
 HANDOFF.md
+AI_CONTEXT.md
 skills-lock.json
 /docs/
 

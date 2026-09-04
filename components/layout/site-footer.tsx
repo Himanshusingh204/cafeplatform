@@ -72,8 +72,9 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
 
       <div className="border-t border-border">
         <div className="container-site flex flex-col items-center justify-between gap-3 py-6 text-xs text-muted-foreground sm:flex-row">
-          <p>
-            © {new Date().getFullYear()} {settings.cafeName}. All rights reserved.
+          <p className="flex items-center gap-1.5">
+            <span>© {new Date().getFullYear()} {settings.cafeName}.</span>
+            <span className="hidden sm:inline text-muted-foreground/80">· Handcrafted with roasted spices, charcoal embers &amp; heartfelt hospitality.</span>
           </p>
           <div className="flex items-center gap-5">
             <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>

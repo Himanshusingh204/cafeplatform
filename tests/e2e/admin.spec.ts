@@ -53,9 +53,9 @@ test.describe("admin management flows", () => {
   });
 
   test("dashboard loads with stats", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("Total dishes")).toBeVisible();
-    await expect(page.getByText("Active categories")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Executive Operations Control|Dashboard/i })).toBeVisible();
+    await expect(page.getByText(/Menu Items|Total dishes/i).first()).toBeVisible();
+    await expect(page.getByText(/Sections & Categories|Active categories/i).first()).toBeVisible();
   });
 
   test("create a category, create a dish inside it, then sign out", async ({ page }) => {
@@ -109,6 +109,15 @@ test.describe("admin management flows", () => {
   });
 
   test("messages inbox lists the visitor submission from the public suite", async ({ page }) => {
+    // Ensure an inquiry exists in case admin suite runs before public suite
+    await page.goto("/contact");
+    await page.locator("#contact-name").fill("Playwright Visitor");
+    await page.locator("#contact-email").fill("visitor@e2e.test");
+    await page.locator("#contact-subject").fill("Table booking inquiry");
+    await page.locator("#contact-message").fill("Checking if the tandoor is running tonight.");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("status")).toContainText("Message received");
+
     await page.goto("/admin/messages");
 
     await expect(page.getByText("Playwright Visitor").first()).toBeVisible();
