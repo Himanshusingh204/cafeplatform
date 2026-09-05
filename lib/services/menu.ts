@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db/prisma";
 import { ensureUniqueSlug, slugify } from "@/lib/utils/slugify";
 import { logAction } from "@/lib/services/audit";
+import { globalCache } from "@/lib/cache/cache-manager";
 
 // ---------------------------------------------------------------------------
 // Public queries (cached with revalidation tag "menu")
@@ -285,6 +286,14 @@ export async function getDishAdmin(id: string) {
 // Admin mutations
 // ---------------------------------------------------------------------------
 
+export async function invalidateMenuCaches(): Promise<void> {
+  try {
+    await globalCache.deleteByPrefix("api:menu");
+  } catch (err) {
+    console.warn("[MenuService] Cache invalidation warning:", err);
+  }
+}
+
 export async function createCategory(input: {
   name: string;
   slug?: string;
@@ -315,6 +324,7 @@ export async function createCategory(input: {
     metadata: { name: category.name },
   });
 
+  await invalidateMenuCaches();
   return category;
 }
 
@@ -356,6 +366,7 @@ export async function updateCategory(
     metadata: { name: category.name },
   });
 
+  await invalidateMenuCaches();
   return category;
 }
 
@@ -379,6 +390,8 @@ export async function deleteCategory(id: string, actorId?: string | null) {
     entityId: id,
     metadata: { name: existing.name },
   });
+
+  await invalidateMenuCaches();
 }
 
 export async function createDish(
@@ -435,6 +448,7 @@ export async function createDish(
     metadata: { name: dish.name, price: Number(dish.price) },
   });
 
+  await invalidateMenuCaches();
   return dish;
 }
 
@@ -498,6 +512,7 @@ export async function updateDish(
     metadata: { name: dish.name },
   });
 
+  await invalidateMenuCaches();
   return dish;
 }
 
@@ -517,6 +532,8 @@ export async function deleteDish(id: string, actorId?: string | null) {
     entityId: id,
     metadata: { name: existing.name },
   });
+
+  await invalidateMenuCaches();
 }
 
 export async function hardDeleteDish(id: string, actorId?: string | null) {
@@ -532,6 +549,8 @@ export async function hardDeleteDish(id: string, actorId?: string | null) {
     entityId: id,
     metadata: { name: existing.name, hard: true },
   });
+
+  await invalidateMenuCaches();
 }
 
 export async function toggleDishAvailability(id: string, isAvailable: boolean, actorId?: string | null) {
@@ -548,6 +567,7 @@ export async function toggleDishAvailability(id: string, isAvailable: boolean, a
     metadata: { name: dish.name },
   });
 
+  await invalidateMenuCaches();
   return dish;
 }
 
@@ -565,6 +585,7 @@ export async function toggleDishFeatured(id: string, isFeatured: boolean, actorI
     metadata: { name: dish.name, isFeatured },
   });
 
+  await invalidateMenuCaches();
   return dish;
 }
 
@@ -584,6 +605,8 @@ export async function reorderDishes(items: { id: string; sortOrder: number }[], 
     entityId: null,
     metadata: { reordered: items.length },
   });
+
+  await invalidateMenuCaches();
 }
 
 // ---------------------------------------------------------------------------

@@ -97,11 +97,14 @@ cafe/
 │   ├── actions/                  # Public server actions (orders, payments, reservations)
 │   ├── api/                      # Request extraction, CORS, response helpers
 │   ├── auth/                     # Argon2id hashing, session verification, S2S HMAC guards
-│   ├── db/                       # Prisma client singleton & multi-tenant resolver
+│   ├── cache/                    # Redis & in-memory Cache-Aside manager
+│   ├── db/                       # Prisma client singleton, slow-query instrumentation & multi-tenant resolver
 │   ├── email/                    # Resend email notifier (receipts, confirmations)
 │   ├── payments/                 # Unified FinTech payment engine (Razorpay & Stripe)
+│   ├── queue/                    # Decoupled async job queue, worker loops & dead-letter queue (DLQ)
 │   ├── rate-limit/               # Token-bucket sliding window limiter
 │   ├── realtime/                 # Distributed event bus for SSE & WebSockets
+│   ├── resilience/               # Distributed IdempotencyManager & request deduplication
 │   ├── services/                 # Domain business services (Orders, Menu, Bookings)
 │   ├── utils/                    # Formatting (currency, dates, strings)
 │   └── validation/               # Zod validation schemas
@@ -115,11 +118,14 @@ cafe/
 │   ├── create-admin.mjs          # Admin user bootstrap utility
 │   └── verify-deployment.mjs     # Pre-flight deployment verification
 ├── server/                       # Standalone Backend Service (Port 4000)
+│   ├── middleware/               # Express idempotency & rate-limiting middleware
+│   ├── preload.ts                # Server environment & runtime polyfill
 │   └── api.ts                    # Dedicated API entrypoint for Port 4000
 └── tests/                        # Automated Quality Assurance Suites
+    ├── e2e/                      # Playwright end-to-end browser user journeys
     ├── integration/              # Database & API integration tests
     ├── security/                 # OWASP payload & mass-assignment tests
-    └── unit/                     # Business logic & payment cryptographic tests
+    └── unit/                     # Business logic, idempotency, caching & queue tests
 ```
 
 ---

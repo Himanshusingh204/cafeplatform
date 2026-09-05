@@ -3,12 +3,16 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { db } from "@/lib/db/prisma";
 import { verifyS2SRequest, ApiScope } from "@/lib/auth/s2s";
-import { broadcastEvent, subscribeToTenantEvents, RealtimeEventPayload } from "@/lib/realtime/bus";
+import { subscribeToTenantEvents, RealtimeEventPayload } from "@/lib/realtime/bus";
 import { getOrCreateDefaultTenant } from "@/lib/db/tenant";
 import { verifyRazorpayWebhookSignature } from "@/lib/payments/engine";
 import { validateCoupon } from "@/lib/services/orders";
 import { logger } from "@/lib/logger";
 import { OrderStatus } from "@/lib/generated/prisma/enums";
+import { idempotencyMiddleware } from "./middleware/idempotency";
+import { globalCache } from "@/lib/cache/cache-manager";
+import { globalJobQueue } from "@/lib/queue/job-queue";
+import "@/lib/queue/handlers";
 
 const app = express();
 const PORT = process.env.API_PORT ? parseInt(process.env.API_PORT, 10) : 4000;
@@ -46,6 +50,9 @@ app.use(
   })
 );
 
+// Resilient Distributed Idempotency (Deduplicates concurrent mutating requests)
+app.use(idempotencyMiddleware(86400));
+
 // 2. Health & Diagnostic Endpoints
 app.get(["/health", "/api/health"], async (_req: Request, res: Response) => {
   try {
@@ -80,39 +87,49 @@ function adaptRequest(req: Request, requiredScope: ApiScope) {
   return verifyS2SRequest(mockReq, requiredScope);
 }
 
-// 3. Menu API (Public & B2B)
+// 3. Menu API (Public & B2B with High-Performance Cache-Aside)
 app.get("/api/v1/menu", async (req: Request, res: Response) => {
   try {
-    const categories = await db.category.findMany({
-      where: { isActive: true, deletedAt: null },
-      orderBy: { sortOrder: "asc" },
-      include: {
-        dishes: {
-          where: { isAvailable: true, deletedAt: null },
+    const cacheKey = "api:menu:all";
+    const { data, fromCache } = await globalCache.getOrSet(
+      cacheKey,
+      async () => {
+        const categories = await db.category.findMany({
+          where: { isActive: true, deletedAt: null },
           orderBy: { sortOrder: "asc" },
-        },
-      },
-    });
+          include: {
+            dishes: {
+              where: { isAvailable: true, deletedAt: null },
+              orderBy: { sortOrder: "asc" },
+            },
+          },
+        });
 
-    res.json({
-      count: categories.length,
-      categories: categories.map((c) => ({
-        id: c.id,
-        name: c.name,
-        slug: c.slug,
-        dishes: c.dishes.map((d) => ({
-          id: d.id,
-          name: d.name,
-          slug: d.slug,
-          price: Number(d.price),
-          description: d.description,
-          image: d.image,
-          isVegetarian: d.isVegetarian,
-          isVegan: d.isVegan,
-          isSpicy: d.isSpicy,
-        })),
-      })),
-    });
+        return {
+          count: categories.length,
+          categories: categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            dishes: c.dishes.map((d) => ({
+              id: d.id,
+              name: d.name,
+              slug: d.slug,
+              price: Number(d.price),
+              description: d.description,
+              image: d.image,
+              isVegetarian: d.isVegetarian,
+              isVegan: d.isVegan,
+              isSpicy: d.isSpicy,
+            })),
+          })),
+        };
+      },
+      300 // 5-minute TTL with instant invalidation on CMS updates
+    );
+
+    res.setHeader("X-Cache-Lookup", fromCache ? "HIT" : "MISS");
+    res.json(data);
   } catch (error) {
     console.error("Failed to load menu:", error);
     res.status(500).json({ error: "Failed to load menu" });
@@ -264,16 +281,37 @@ app.post("/api/v1/webhooks/payment", async (req: Request & { rawBody?: string },
         data: { paymentStatus: "PAID", orderStatus: "CONFIRMED" },
       });
 
-      broadcastEvent({
+      // Decoupled asynchronous workers via JobQueue
+      globalJobQueue.enqueue("KDS_BROADCAST", {
         type: "order:status_changed",
         tenantId: order.tenantId || "spice-saffron",
         timestamp: new Date().toISOString(),
         data: { id: order.id, orderNumber: order.orderNumber, orderStatus: "CONFIRMED", paymentStatus: "PAID" },
       });
+
+      if (order.customerEmail) {
+        globalJobQueue.enqueue("EMAIL_DISPATCH", {
+          to: order.customerEmail,
+          subject: `Order Confirmation #${order.orderNumber} - Spice & Saffron`,
+          body: `Thank you for your order! Your payment has been confirmed.`,
+          orderNumber: order.orderNumber,
+        });
+      }
     }
   }
 
   res.status(200).json({ received: true });
+});
+
+// 8. System & Telemetry Metrics (S2S / Ops)
+app.get("/api/v1/system/metrics", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    memoryUsage: process.memoryUsage(),
+    queue: globalJobQueue.getMetrics(),
+  });
 });
 
 // Start Server
