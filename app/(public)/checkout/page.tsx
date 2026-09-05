@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Clock, CreditCard, ShieldCheck, ShoppingBag, Tag, AlertCircle } from "lucide-react";
+import { ArrowLeft, Clock, CreditCard, ShieldCheck, ShoppingBag, Tag, AlertCircle, Utensils, Heart } from "lucide-react";
 import { useCart } from "@/hooks/use-cart";
 import { formatPrice } from "@/lib/utils/format";
 import { checkCouponAction, submitTakeawayOrderAction } from "@/lib/actions/public";
@@ -24,12 +24,31 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { items, subtotal, clearCart } = useCart();
 
+  const [diningMode, setDiningMode] = React.useState<"TAKEAWAY" | "DINE_IN">(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("table") || params.get("mode") === "dine_in") {
+        return "DINE_IN";
+      }
+    }
+    return "TAKEAWAY";
+  });
+  const [tableNumber, setTableNumber] = React.useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("table") || "";
+    }
+    return "";
+  });
   const [customerName, setCustomerName] = React.useState("");
   const [customerEmail, setCustomerEmail] = React.useState("");
   const [customerPhone, setCustomerPhone] = React.useState("");
   const [pickupTime, setPickupTime] = React.useState(PICKUP_TIMES[0]);
   const [specialInstructions, setSpecialInstructions] = React.useState("");
   const [paymentMethod, setPaymentMethod] = React.useState<"PAY_AT_PICKUP" | "CARD_ONLINE">("PAY_AT_PICKUP");
+
+  const [selectedTipPct, setSelectedTipPct] = React.useState<number | null>(15);
+  const [customTip, setCustomTip] = React.useState("");
 
   const [couponCode, setCouponCode] = React.useState("");
   const [couponDiscount, setCouponDiscount] = React.useState(0);
@@ -39,9 +58,16 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = React.useState(false);
   const [orderError, setOrderError] = React.useState<string | null>(null);
 
+  const tipAmount =
+    customTip !== ""
+      ? Math.max(0, Number(customTip) || 0)
+      : selectedTipPct
+      ? Math.round((subtotal * selectedTipPct) / 100)
+      : 0;
+
   const taxableAmount = Math.max(0, subtotal - couponDiscount);
   const tax = Math.round(taxableAmount * 0.05); // 5% GST
-  const grandTotal = taxableAmount + tax;
+  const grandTotal = taxableAmount + tax + tipAmount;
 
   async function handleApplyCoupon(e: React.FormEvent) {
     e.preventDefault();
@@ -64,21 +90,34 @@ export default function CheckoutPage() {
     setOrderError(null);
     if (items.length === 0) return;
 
+    if (diningMode === "DINE_IN" && !tableNumber.trim()) {
+      setOrderError("Please enter your Table Number for Dine-In service.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await submitTakeawayOrderAction({
         customerName,
         customerEmail,
         customerPhone,
-        pickupTime,
+        pickupTime: diningMode === "DINE_IN" ? `Table ${tableNumber}` : pickupTime,
+        diningMode,
+        tableNumber: diningMode === "DINE_IN" ? tableNumber : undefined,
+        tip: tipAmount,
         specialInstructions,
         couponCode: appliedCoupon || undefined,
         paymentMethod,
         items: items.map((i) => ({
-          dishId: i.id,
+          dishId: i.dishId || i.id,
           dishName: i.name,
           quantity: i.quantity,
           price: i.price,
+          modifiers: i.modifiers?.map((m) => ({
+            groupName: m.groupName,
+            optionName: m.optionName,
+            priceDelta: m.priceDelta,
+          })),
         })),
       });
 
@@ -185,10 +224,12 @@ export default function CheckoutPage() {
       </Link>
 
       <h1 className="heading-display text-3xl md:text-4xl font-bold text-foreground mb-2">
-        Takeaway Checkout
+        {diningMode === "DINE_IN" ? "Dine-In Order & Checkout" : "Takeaway Order & Checkout"}
       </h1>
       <p className="text-sm text-muted-foreground mb-10">
-        Review your order and select your preferred pickup time at Hauz Khas.
+        {diningMode === "DINE_IN"
+          ? "Ordering directly to your dining table at Spice & Saffron."
+          : "Review your order and select your preferred pickup time at Hauz Khas."}
       </p>
 
       {orderError && (
@@ -201,11 +242,80 @@ export default function CheckoutPage() {
       <form onSubmit={handlePlaceOrder} className="grid gap-10 lg:grid-cols-[1.4fr_1fr] lg:gap-14 items-start">
         {/* Left Column: Details */}
         <div className="space-y-8">
-          {/* Pickup Details */}
+          {/* Dining Experience Mode */}
+          <div className="rounded-2xl border border-border bg-card p-6 md:p-8 shadow-card space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-foreground flex items-center gap-2">
+                <Utensils className="h-4 w-4 text-primary" />
+                Dining Experience
+              </h2>
+              {diningMode === "DINE_IN" && tableNumber && (
+                <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono font-semibold">
+                  📍 Table {tableNumber}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setDiningMode("TAKEAWAY")}
+                className={`p-4 rounded-xl border text-left transition-all ${
+                  diningMode === "TAKEAWAY"
+                    ? "border-primary bg-primary/5 shadow-xs ring-1 ring-primary/40"
+                    : "border-border bg-background hover:bg-muted/40"
+                }`}
+              >
+                <div className="flex items-center gap-2 font-medium text-sm text-foreground">
+                  <ShoppingBag className="h-4 w-4 text-primary" />
+                  Takeaway Pickup
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Packed fresh & ready at front counter.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDiningMode("DINE_IN")}
+                className={`p-4 rounded-xl border text-left transition-all ${
+                  diningMode === "DINE_IN"
+                    ? "border-primary bg-primary/5 shadow-xs ring-1 ring-primary/40"
+                    : "border-border bg-background hover:bg-muted/40"
+                }`}
+              >
+                <div className="flex items-center gap-2 font-medium text-sm text-foreground">
+                  <Utensils className="h-4 w-4 text-primary" />
+                  Dine-In Table
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Served hot directly to your table.
+                </p>
+              </button>
+            </div>
+
+            {diningMode === "DINE_IN" && (
+              <div className="pt-2">
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Table Number *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 4 or Outdoor-B"
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Guest Details */}
           <div className="rounded-2xl border border-border bg-card p-6 md:p-8 shadow-card space-y-6">
             <h2 className="font-semibold text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4 text-primary" />
-              Pickup Schedule & Guest Details
+              {diningMode === "DINE_IN" ? "Guest Details" : "Pickup Schedule & Guest Details"}
             </h2>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -246,30 +356,70 @@ export default function CheckoutPage() {
               />
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Preferred Pickup Time *</label>
-              <select
-                value={pickupTime}
-                onChange={(e) => setPickupTime(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {PICKUP_TIMES.map((time) => (
-                  <option key={time} value={time}>
-                    {time}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {diningMode === "TAKEAWAY" && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Preferred Pickup Time *</label>
+                <select
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {PICKUP_TIMES.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Special Cooking Notes (Optional)</label>
               <textarea
                 rows={2}
-                placeholder="Pack extra green chutney, separate gravy, mild spice..."
+                placeholder="Extra green chutney, less oil, mild spice..."
                 value={specialInstructions}
                 onChange={(e) => setSpecialInstructions(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
+            </div>
+          </div>
+
+          {/* Staff Gratuity & Appreciation */}
+          <div className="rounded-2xl border border-border bg-card p-6 md:p-8 shadow-card space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-foreground flex items-center gap-2">
+                <Heart className="h-4 w-4 text-primary" />
+                Staff Gratuity & Appreciation
+              </h2>
+              {tipAmount > 0 && (
+                <span className="text-sm font-semibold text-primary font-mono">
+                  +{formatPrice(tipAmount)}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              100% of tips are distributed directly to our kitchen cooks, baristas, and floor service staff.
+            </p>
+
+            <div className="grid grid-cols-5 gap-2">
+              {[0, 10, 15, 18, 20].map((pct) => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTipPct(pct);
+                    setCustomTip("");
+                  }}
+                  className={`py-2 px-2 rounded-xl border text-xs font-semibold transition-all ${
+                    selectedTipPct === pct && customTip === ""
+                      ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                      : "border-border bg-background hover:bg-muted/40 text-foreground"
+                  }`}
+                >
+                  {pct === 0 ? "No Tip" : `${pct}%`}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -296,7 +446,9 @@ export default function CheckoutPage() {
                   className="mt-1"
                 />
                 <div>
-                  <p className="text-sm font-medium text-foreground">Pay at Counter</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {diningMode === "DINE_IN" ? "Pay at Table / Counter" : "Pay at Counter"}
+                  </p>
                   <p className="text-xs text-muted-foreground">Cash, UPI (GPay/PhonePe), or Card at the café</p>
                 </div>
               </label>
@@ -331,10 +483,24 @@ export default function CheckoutPage() {
 
             <ul className="divide-y divide-border text-sm">
               {items.map((item) => (
-                <li key={item.id} className="py-3 flex justify-between items-center gap-3">
-                  <div className="min-w-0">
+                <li key={item.id} className="py-3 flex justify-between items-start gap-3">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-foreground truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <div className="mt-0.5 space-y-0.5">
+                        {item.modifiers.map((m) => (
+                          <p key={`${m.groupId}-${m.optionId}`} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <span>• {m.optionName}</span>
+                            {m.priceDelta > 0 && (
+                              <span className="text-primary font-mono text-[10px]">
+                                (+{formatPrice(m.priceDelta)})
+                              </span>
+                            )}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
                       {formatPrice(item.price)} × {item.quantity}
                     </p>
                   </div>
@@ -389,6 +555,12 @@ export default function CheckoutPage() {
                 <span>Restaurant GST (5%)</span>
                 <span>{formatPrice(tax)}</span>
               </div>
+              {tipAmount > 0 && (
+                <div className="flex justify-between text-foreground font-medium">
+                  <span>Staff Gratuity</span>
+                  <span className="text-primary font-mono">+{formatPrice(tipAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-base font-bold text-foreground border-t border-border pt-2">
                 <span>Total Amount</span>
                 <span className="text-primary">{formatPrice(grandTotal)}</span>
@@ -400,7 +572,9 @@ export default function CheckoutPage() {
               disabled={submitting}
               className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
             >
-              {submitting ? "Placing Order..." : `Confirm Takeaway Order (${formatPrice(grandTotal)})`}
+              {submitting
+                ? "Placing Order..."
+                : `Confirm ${diningMode === "DINE_IN" ? "Dine-In" : "Takeaway"} Order (${formatPrice(grandTotal)})`}
             </button>
           </div>
 

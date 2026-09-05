@@ -73,7 +73,21 @@ export function CartDrawer() {
 
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm font-medium text-foreground">{item.name}</h3>
-                  <p className="text-xs font-semibold text-primary">{formatPrice(item.price)}</p>
+                  {item.modifiers && item.modifiers.length > 0 && (
+                    <div className="mt-0.5 space-y-0.5">
+                      {item.modifiers.map((m) => (
+                        <p key={`${m.groupId}-${m.optionId}`} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <span>• {m.optionName}</span>
+                          {m.priceDelta > 0 && (
+                            <span className="text-primary font-mono text-[10px]">
+                              (+{formatPrice(m.priceDelta)})
+                            </span>
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs font-semibold text-primary">{formatPrice(item.price)}</p>
 
                   <div className="mt-2 flex items-center gap-2">
                     <div className="flex items-center rounded-md border border-border bg-background">

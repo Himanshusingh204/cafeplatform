@@ -40,7 +40,13 @@ export async function getActiveKDSOrdersAction() {
     },
     orderBy: { createdAt: "desc" },
     take: 40,
-    include: { items: true },
+    include: {
+      items: {
+        include: {
+          modifiers: true,
+        },
+      },
+    },
   });
 
   return raw.map((o) => ({
@@ -48,6 +54,9 @@ export async function getActiveKDSOrdersAction() {
     orderNumber: o.orderNumber,
     customerName: o.customerName,
     pickupTime: o.pickupTime,
+    diningMode: o.diningMode,
+    tableNumber: o.tableNumber,
+    tip: Number(o.tip),
     specialInstructions: o.specialInstructions,
     total: Number(o.total),
     orderStatus: o.orderStatus,
@@ -57,6 +66,11 @@ export async function getActiveKDSOrdersAction() {
       dishName: i.dishName,
       quantity: i.quantity,
       price: Number(i.price),
+      modifiers: i.modifiers.map((m) => ({
+        groupName: m.groupName,
+        optionName: m.optionName,
+        priceDelta: Number(m.priceDelta),
+      })),
     })),
   }));
 }

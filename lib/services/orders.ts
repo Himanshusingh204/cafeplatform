@@ -4,20 +4,30 @@ import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
 import { broadcastEvent } from "@/lib/realtime/bus";
 import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
-import type { OrderStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
+import type { OrderStatus, PaymentStatus, DiningMode } from "@/lib/generated/prisma/enums";
+
+export interface OrderItemModifierInput {
+  groupName: string;
+  optionName: string;
+  priceDelta: number;
+}
 
 export interface OrderItemInput {
   dishId?: string;
   dishName: string;
   quantity: number;
   price: number;
+  modifiers?: OrderItemModifierInput[];
 }
 
 export interface CreateOrderInput {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  pickupTime: string;
+  pickupTime?: string;
+  diningMode?: DiningMode;
+  tableNumber?: string;
+  tip?: number;
   specialInstructions?: string;
   items: OrderItemInput[];
   couponCode?: string;
@@ -89,7 +99,7 @@ export async function createOrder(input: CreateOrderInput) {
       throw new Error(`Invalid quantity for "${item.dishName}". Must be between 1 and 99.`);
     }
 
-    let authoritativePrice = Number(item.price);
+    let authoritativeBasePrice = Number(item.price);
     let authoritativeName = item.dishName.trim();
 
     if (item.dishId) {
@@ -100,19 +110,29 @@ export async function createOrder(input: CreateOrderInput) {
       if (!dbDish.isAvailable) {
         throw new Error(`Dish "${dbDish.name}" is currently marked out of stock.`);
       }
-      authoritativePrice = Number(dbDish.price);
+      authoritativeBasePrice = Number(dbDish.price);
       authoritativeName = dbDish.name;
     } else {
-      if (typeof authoritativePrice !== "number" || isNaN(authoritativePrice) || authoritativePrice <= 0) {
+      if (typeof authoritativeBasePrice !== "number" || isNaN(authoritativeBasePrice) || authoritativeBasePrice <= 0) {
         throw new Error(`Invalid price for item "${item.dishName}".`);
       }
     }
+
+    const validatedModifiers = (item.modifiers || []).map((m) => ({
+      groupName: String(m.groupName || "").trim(),
+      optionName: String(m.optionName || "").trim(),
+      priceDelta: Math.max(0, Number(m.priceDelta || 0)),
+    }));
+
+    const modifiersDelta = validatedModifiers.reduce((sum, m) => sum + m.priceDelta, 0);
+    const unitPrice = authoritativeBasePrice + modifiersDelta;
 
     return {
       dishId: item.dishId || null,
       dishName: authoritativeName,
       quantity: qty,
-      price: authoritativePrice,
+      price: unitPrice,
+      modifiers: validatedModifiers,
     };
   });
 
@@ -135,10 +155,14 @@ export async function createOrder(input: CreateOrderInput) {
     }
   }
 
+  const tip = Math.max(0, Math.round(Number(input.tip || 0)));
   // Standard 5% restaurant GST
   const taxableAmount = Math.max(0, subtotal - discount);
   const tax = Math.round(taxableAmount * 0.05);
-  const total = taxableAmount + tax;
+  const total = taxableAmount + tax + tip;
+
+  const diningMode: DiningMode = input.diningMode || "TAKEAWAY";
+  const pickupTime = input.pickupTime?.trim() || (diningMode === "DINE_IN" ? "DINE-IN" : "ASAP (~20–30 mins)");
 
   const orderNumber = generateOrderNumber();
   // Online orders start in PENDING state until confirmed via gateway signature or webhook
@@ -151,7 +175,10 @@ export async function createOrder(input: CreateOrderInput) {
       customerName: input.customerName.trim(),
       customerEmail: input.customerEmail.toLowerCase().trim(),
       customerPhone: input.customerPhone.trim(),
-      pickupTime: input.pickupTime,
+      pickupTime,
+      diningMode,
+      tableNumber: input.tableNumber?.trim() || null,
+      tip,
       specialInstructions: input.specialInstructions?.trim() || null,
       subtotal,
       tax,
@@ -166,11 +193,24 @@ export async function createOrder(input: CreateOrderInput) {
           dishName: item.dishName,
           quantity: item.quantity,
           price: item.price,
+          modifiers: item.modifiers.length > 0
+            ? {
+                create: item.modifiers.map((m) => ({
+                  groupName: m.groupName,
+                  optionName: m.optionName,
+                  priceDelta: m.priceDelta,
+                })),
+              }
+            : undefined,
         })),
       },
     },
     include: {
-      items: true,
+      items: {
+        include: {
+          modifiers: true,
+        },
+      },
     },
   });
 
@@ -183,6 +223,9 @@ export async function createOrder(input: CreateOrderInput) {
       id: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
+      diningMode: order.diningMode,
+      tableNumber: order.tableNumber,
+      tip: Number(order.tip),
       total: Number(order.total),
       pickupTime: order.pickupTime,
       items: order.items,
@@ -195,9 +238,13 @@ export async function createOrder(input: CreateOrderInput) {
     data: {
       id: order.id,
       orderNumber: order.orderNumber,
+      diningMode: order.diningMode,
+      tableNumber: order.tableNumber,
+      tip: Number(order.tip),
       total: Number(order.total),
       customerName: order.customerName,
       pickupTime: order.pickupTime,
+      items: order.items,
     },
   }).catch(() => {});
 
@@ -208,7 +255,13 @@ export async function getOrderById(id: string) {
   try {
     return await db.order.findUnique({
       where: { id },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            modifiers: true,
+          },
+        },
+      },
     });
   } catch {
     return null;
@@ -219,7 +272,13 @@ export async function getOrderByNumber(orderNumber: string) {
   try {
     return await db.order.findUnique({
       where: { orderNumber: orderNumber.toUpperCase().trim() },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            modifiers: true,
+          },
+        },
+      },
     });
   } catch {
     return null;
@@ -247,7 +306,13 @@ export async function listOrdersAdmin(options?: {
         orderBy: { createdAt: "desc" },
         skip,
         take: pageSize,
-        include: { items: true },
+        include: {
+          items: {
+            include: {
+              modifiers: true,
+            },
+          },
+        },
       }),
       db.order.count({ where }),
     ]);

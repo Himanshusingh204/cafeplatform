@@ -9,6 +9,7 @@ export interface KDSTicketItem {
   dishName: string;
   quantity: number;
   price: string | number;
+  modifiers?: { groupName: string; optionName: string; priceDelta: number }[];
 }
 
 export interface KDSTicket {
@@ -16,6 +17,9 @@ export interface KDSTicket {
   orderNumber: string;
   customerName: string;
   pickupTime: string;
+  diningMode?: "DINE_IN" | "TAKEAWAY" | "DELIVERY";
+  tableNumber?: string | null;
+  tip?: string | number;
   specialInstructions?: string | null;
   total: string | number;
   orderStatus: "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
@@ -39,6 +43,68 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Print 80mm ESC/POS formatted kitchen chit
+  const printChit = useCallback((order: KDSTicket) => {
+    if (typeof window === "undefined") return;
+    const win = window.open("", "_blank", "width=380,height=600");
+    if (!win) return;
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Chit #${order.orderNumber}</title>
+          <style>
+            @page { margin: 0; }
+            body {
+              font-family: monospace;
+              width: 76mm;
+              padding: 8px;
+              margin: 0;
+              font-size: 13px;
+              line-height: 1.3;
+              color: #000;
+            }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .order-no { font-size: 24px; font-weight: bold; margin: 4px 0; }
+            .mode-badge { display: inline-block; padding: 3px 8px; border: 2px solid #000; font-weight: bold; font-size: 14px; margin: 4px 0; }
+            .divider { border-bottom: 1px dashed #000; margin: 8px 0; }
+            .item-line { font-size: 14px; font-weight: bold; margin-top: 5px; }
+            .mod-line { font-size: 12px; margin-left: 14px; font-weight: normal; }
+          </style>
+        </head>
+        <body>
+          <div class="center">
+            <div class="bold" style="font-size: 16px;">SPICE & SAFFRON</div>
+            <div>KITCHEN EXPEDITE CHIT</div>
+            <div class="order-no">${order.orderNumber}</div>
+            <div class="mode-badge">${order.diningMode === "DINE_IN" ? `TABLE ${order.tableNumber || "DINE-IN"}` : "TAKEAWAY PICKUP"}</div>
+            <div>Target: <strong>${order.pickupTime}</strong></div>
+          </div>
+          <div class="divider"></div>
+          <div>Guest: <strong>${order.customerName}</strong></div>
+          <div class="divider"></div>
+          ${order.items
+            .map(
+              (item) => `
+            <div class="item-line">[ ${item.quantity}x ] ${item.dishName}</div>
+            ${(item.modifiers || []).map((m) => `<div class="mod-line">• ${m.optionName}</div>`).join("")}
+          `
+            )
+            .join("")}
+          <div class="divider"></div>
+          ${order.specialInstructions ? `<div><strong>NOTE:</strong> ${order.specialInstructions}</div><div class="divider"></div>` : ""}
+          <div class="center" style="font-size: 11px;">*** SEND TO PASS ***</div>
+          <script>
+            window.onload = function() { window.print(); window.close(); };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   }, []);
 
   // Play audio chime for new orders
@@ -91,6 +157,9 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                 orderNumber: newOrderData.orderNumber,
                 customerName: newOrderData.customerName,
                 pickupTime: newOrderData.pickupTime || "ASAP",
+                diningMode: newOrderData.diningMode || "TAKEAWAY",
+                tableNumber: newOrderData.tableNumber,
+                tip: newOrderData.tip,
                 total: newOrderData.total,
                 orderStatus: "PENDING",
                 createdAt: new Date().toISOString(),
@@ -255,20 +324,51 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </span>
                   </div>
 
-                  <div className="text-xs text-muted-foreground">
-                    <span>Pickup: <strong className="text-foreground">{order.pickupTime}</strong></span>
+                  {/* Dining Mode & Pickup */}
+                  <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      {order.diningMode === "DINE_IN" ? (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          🍽️ Table {order.tableNumber || "Dine-In"}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                          🛍️ Takeaway
+                        </span>
+                      )}
+                      {order.tip && Number(order.tip) > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                          Tip: £{Number(order.tip).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground">
+                      Pickup: <strong className="text-foreground">{order.pickupTime}</strong>
+                    </span>
                   </div>
 
-                  {/* Items List */}
-                  <div className="space-y-1.5 pt-2 border-t border-border">
+                  {/* Items List with Modifiers */}
+                  <div className="space-y-2 pt-2 border-t border-border">
                     {order.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs">
-                        <span className="text-foreground font-medium flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-[10px] font-bold">
-                            {item.quantity}
+                      <div key={idx} className="space-y-0.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-foreground font-medium flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-[10px] font-bold">
+                              {item.quantity}
+                            </span>
+                            {item.dishName}
                           </span>
-                          {item.dishName}
-                        </span>
+                        </div>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <div className="pl-6 space-y-0.5">
+                            {item.modifiers.map((m, mIdx) => (
+                              <div key={mIdx} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                <span className="text-primary/70">↳</span>
+                                <span>{m.optionName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -279,14 +379,24 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => handleAdvanceStatus(order.id, "PREPARING")}
-                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                  >
-                    🔥 Start Cooking
-                  </button>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => printChit(order)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                      title="Print Kitchen Expedite Chit (80mm)"
+                    >
+                      🖨️ Chit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleAdvanceStatus(order.id, "PREPARING")}
+                      className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      🔥 Start Cooking
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -324,27 +434,72 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 pt-2 border-t border-border">
-                    {order.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs">
-                        <span className="text-foreground font-medium flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px] font-bold">
-                            {item.quantity}
-                          </span>
-                          {item.dishName}
+                  {/* Dining Mode & Pickup */}
+                  <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      {order.diningMode === "DINE_IN" ? (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          🍽️ Table {order.tableNumber || "Dine-In"}
                         </span>
+                      ) : (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                          🛍️ Takeaway
+                        </span>
+                      )}
+                      {order.tip && Number(order.tip) > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                          Tip: £{Number(order.tip).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground">
+                      Pickup: <strong className="text-foreground">{order.pickupTime}</strong>
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    {order.items.map((item, idx) => (
+                      <div key={idx} className="space-y-0.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-foreground font-medium flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px] font-bold">
+                              {item.quantity}
+                            </span>
+                            {item.dishName}
+                          </span>
+                        </div>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <div className="pl-6 space-y-0.5">
+                            {item.modifiers.map((m, mIdx) => (
+                              <div key={mIdx} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                <span className="text-primary/70">↳</span>
+                                <span>{m.optionName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => handleAdvanceStatus(order.id, "READY")}
-                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                  >
-                    🔔 Mark Ready for Pass
-                  </button>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => printChit(order)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                      title="Print Kitchen Expedite Chit (80mm)"
+                    >
+                      🖨️ Chit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleAdvanceStatus(order.id, "READY")}
+                      className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      🔔 Mark Ready for Pass
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -382,27 +537,67 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 pt-2 border-t border-border">
-                    {order.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs">
-                        <span className="text-foreground font-medium flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px] font-bold">
-                            {item.quantity}
-                          </span>
-                          {item.dishName}
+                  {/* Dining Mode */}
+                  <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      {order.diningMode === "DINE_IN" ? (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          🍽️ Table {order.tableNumber || "Dine-In"}
                         </span>
+                      ) : (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                          🛍️ Takeaway
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground">
+                      Pickup: <strong className="text-foreground">{order.pickupTime}</strong>
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    {order.items.map((item, idx) => (
+                      <div key={idx} className="space-y-0.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-foreground font-medium flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px] font-bold">
+                              {item.quantity}
+                            </span>
+                            {item.dishName}
+                          </span>
+                        </div>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <div className="pl-6 space-y-0.5">
+                            {item.modifiers.map((m, mIdx) => (
+                              <div key={mIdx} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                <span className="text-primary/70">↳</span>
+                                <span>{m.optionName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => handleAdvanceStatus(order.id, "COMPLETED")}
-                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                  >
-                    ✓ Handed Over & Complete
-                  </button>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => printChit(order)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                      title="Print Kitchen Expedite Chit (80mm)"
+                    >
+                      🖨️ Chit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleAdvanceStatus(order.id, "COMPLETED")}
+                      className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      ✓ Handed Over & Complete
+                    </button>
+                  </div>
                 </div>
               ))
             )}

@@ -2,13 +2,23 @@
 
 import * as React from "react";
 
+export interface CartModifierSelection {
+  groupId: string;
+  groupName: string;
+  optionId: string;
+  optionName: string;
+  priceDelta: number;
+}
+
 export interface CartItem {
   id: string;
+  dishId?: string;
   name: string;
   slug: string;
   price: number;
   quantity: number;
   image?: string | null;
+  modifiers?: CartModifierSelection[];
 }
 
 interface CartContextType {
@@ -55,11 +65,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const addItem = React.useCallback(
     (item: Omit<CartItem, "quantity">, quantity = 1) => {
+      const modifierKey =
+        item.modifiers && item.modifiers.length > 0
+          ? `::${item.modifiers.map((m) => m.optionId).sort().join(";")}`
+          : "";
+      const uniqueLineId = `${item.dishId || item.id}${modifierKey}`;
+      const lineItem = { ...item, id: uniqueLineId, dishId: item.dishId || item.id };
+
       setItems((prev) => {
-        const existing = prev.find((i) => i.id === item.id);
+        const existing = prev.find((i) => i.id === uniqueLineId);
         const updated = existing
-          ? prev.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + quantity } : i))
-          : [...prev, { ...item, quantity }];
+          ? prev.map((i) => (i.id === uniqueLineId ? { ...i, quantity: i.quantity + quantity } : i))
+          : [...prev, { ...lineItem, quantity }];
         persist(updated);
         return updated;
       });

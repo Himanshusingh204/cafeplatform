@@ -26,6 +26,22 @@ export interface PublicDish {
   containsNuts: boolean;
   preparationTime: number | null;
   calories: number | null;
+  station?: string;
+  modifierGroups?: PublicModifierGroup[];
+}
+
+export interface PublicModifierOption {
+  id: string;
+  name: string;
+  priceDelta: number;
+}
+
+export interface PublicModifierGroup {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  options: PublicModifierOption[];
 }
 
 export interface PublicCategory {
@@ -54,6 +70,18 @@ type DishSelect = {
   containsNuts: boolean;
   preparationTime: number | null;
   calories: number | null;
+  station?: string;
+  modifierGroups?: {
+    id: string;
+    name: string;
+    minSelect: number;
+    maxSelect: number;
+    options: {
+      id: string;
+      name: string;
+      priceDelta: { toString(): string } | number;
+    }[];
+  }[];
 };
 
 function toPublicDish(dish: DishSelect): PublicDish {
@@ -73,6 +101,18 @@ function toPublicDish(dish: DishSelect): PublicDish {
     containsNuts: dish.containsNuts,
     preparationTime: dish.preparationTime,
     calories: dish.calories,
+    station: dish.station || "HOT_KITCHEN",
+    modifierGroups: (dish.modifierGroups || []).map((g) => ({
+      id: g.id,
+      name: g.name,
+      minSelect: g.minSelect,
+      maxSelect: g.maxSelect,
+      options: g.options.map((o) => ({
+        id: o.id,
+        name: o.name,
+        priceDelta: Number(o.priceDelta),
+      })),
+    })),
   };
 }
 
@@ -101,6 +141,16 @@ async function fetchMenu(): Promise<PublicCategory[]> {
             containsNuts: true,
             preparationTime: true,
             calories: true,
+            station: true,
+            modifierGroups: {
+              orderBy: { sortOrder: "asc" },
+              include: {
+                options: {
+                  where: { isAvailable: true },
+                  orderBy: { sortOrder: "asc" },
+                },
+              },
+            },
           },
         },
       },
@@ -150,7 +200,17 @@ export async function getDishBySlugCached(slug: string) {
         containsNuts: true,
         preparationTime: true,
         calories: true,
+        station: true,
         category: { select: { name: true, slug: true } },
+        modifierGroups: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            options: {
+              where: { isAvailable: true },
+              orderBy: { sortOrder: "asc" },
+            },
+          },
+        },
       },
     });
 
@@ -172,8 +232,20 @@ export async function getDishBySlugCached(slug: string) {
       containsNuts: dish.containsNuts,
       preparationTime: dish.preparationTime,
       calories: dish.calories,
+      station: dish.station || "HOT_KITCHEN",
       categoryName: dish.category.name,
       categorySlug: dish.category.slug,
+      modifierGroups: (dish.modifierGroups || []).map((g) => ({
+        id: g.id,
+        name: g.name,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        options: g.options.map((o) => ({
+          id: o.id,
+          name: o.name,
+          priceDelta: Number(o.priceDelta),
+        })),
+      })),
     };
   } catch (error) {
     console.error("getDishBySlug: database query failed", error);
