@@ -12,6 +12,14 @@ const TRUNCATABLE_TABLES = new Set([
   "ContactMessage",
   "ActivityLog",
   "Setting",
+  "Order",
+  "OrderItem",
+  "Ingredient",
+  "RecipeItem",
+  "DiningTable",
+  "WaitlistEntry",
+  "CustomerUser",
+  "LoyaltyLedger",
 ]);
 
 // Test database only; names are validated against an allow-list.

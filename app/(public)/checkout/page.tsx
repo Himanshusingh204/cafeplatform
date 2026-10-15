@@ -55,8 +55,12 @@ export default function CheckoutPage() {
   const [appliedCoupon, setAppliedCoupon] = React.useState<string | null>(null);
   const [couponError, setCouponError] = React.useState<string | null>(null);
 
+  const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = React.useState<number>(0);
+
   const [submitting, setSubmitting] = React.useState(false);
   const [orderError, setOrderError] = React.useState<string | null>(null);
+
+  const loyaltyDiscount = Math.floor(loyaltyPointsToRedeem / 100) * 50;
 
   const tipAmount =
     customTip !== ""
@@ -65,7 +69,8 @@ export default function CheckoutPage() {
       ? Math.round((subtotal * selectedTipPct) / 100)
       : 0;
 
-  const taxableAmount = Math.max(0, subtotal - couponDiscount);
+  const totalDiscounts = couponDiscount + loyaltyDiscount;
+  const taxableAmount = Math.max(0, subtotal - totalDiscounts);
   const tax = Math.round(taxableAmount * 0.05); // 5% GST
   const grandTotal = taxableAmount + tax + tipAmount;
 
@@ -107,6 +112,7 @@ export default function CheckoutPage() {
         tip: tipAmount,
         specialInstructions,
         couponCode: appliedCoupon || undefined,
+        loyaltyPointsToRedeem: loyaltyPointsToRedeem > 0 ? loyaltyPointsToRedeem : undefined,
         paymentMethod,
         items: items.map((i) => ({
           dishId: i.dishId || i.id,
@@ -539,6 +545,32 @@ export default function CheckoutPage() {
               )}
             </div>
 
+            {/* VIP Loyalty Points Redemption */}
+            <div className="border-t border-border pt-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-muted-foreground block">
+                  👑 VIP Loyalty Points
+                </label>
+                <span className="text-[10px] text-muted-foreground">100 pts = ₹50 off</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {[0, 100, 200, 400].map((pts) => (
+                  <button
+                    key={pts}
+                    type="button"
+                    onClick={() => setLoyaltyPointsToRedeem(pts)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                      loyaltyPointsToRedeem === pts
+                        ? "bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-sm"
+                        : "bg-background text-muted-foreground border-border hover:text-foreground"
+                    }`}
+                  >
+                    {pts === 0 ? "None" : `${pts} pts (-₹${Math.floor(pts / 100) * 50})`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Price Calculations */}
             <div className="border-t border-border pt-4 space-y-2 text-xs">
               <div className="flex justify-between text-muted-foreground">
@@ -547,8 +579,14 @@ export default function CheckoutPage() {
               </div>
               {couponDiscount > 0 && (
                 <div className="flex justify-between text-success">
-                  <span>Discount</span>
+                  <span>Promo Coupon Discount</span>
                   <span>- {formatPrice(couponDiscount)}</span>
+                </div>
+              )}
+              {loyaltyDiscount > 0 && (
+                <div className="flex justify-between text-amber-400 font-medium">
+                  <span>VIP Points Discount ({loyaltyPointsToRedeem} pts)</span>
+                  <span>- {formatPrice(loyaltyDiscount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-muted-foreground">

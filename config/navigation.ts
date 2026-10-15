@@ -2,6 +2,8 @@ export const navigation = [
   { label: "Home", href: "/" },
   { label: "Menu", href: "/menu" },
   { label: "Reservations", href: "/reservations" },
+  { label: "Waitlist", href: "/waitlist" },
+  { label: "VIP Club", href: "/loyalty" },
   { label: "About", href: "/about" },
   { label: "Gallery", href: "/gallery" },
   { label: "Contact", href: "/contact" },
@@ -11,6 +13,8 @@ export const navigation = [
 export const adminNavigation = [
   { label: "Dashboard", href: "/admin" },
   { label: "Kitchen Display (KDS)", href: "/admin/kds" },
+  { label: "Floorplan & Tables", href: "/admin/tables" },
+  { label: "Inventory & Auto-86", href: "/admin/inventory" },
   { label: "Reservations", href: "/admin/reservations" },
   { label: "Takeaway Orders", href: "/admin/orders" },
   { label: "Dishes", href: "/admin/dishes" },

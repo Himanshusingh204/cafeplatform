@@ -4,6 +4,9 @@ import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
 import { broadcastEvent } from "@/lib/realtime/bus";
 import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
+import { depleteInventoryForOrder } from "@/lib/services/inventory";
+import { occupyTableWithOrder, freeTable } from "@/lib/services/tables";
+import { processLoyaltyForOrder, redeemPoints } from "@/lib/services/loyalty";
 import type { OrderStatus, PaymentStatus, DiningMode } from "@/lib/generated/prisma/enums";
 
 export interface OrderItemModifierInput {
@@ -17,6 +20,7 @@ export interface OrderItemInput {
   dishName: string;
   quantity: number;
   price: number;
+  station?: string;
   modifiers?: OrderItemModifierInput[];
 }
 
@@ -31,6 +35,7 @@ export interface CreateOrderInput {
   specialInstructions?: string;
   items: OrderItemInput[];
   couponCode?: string;
+  loyaltyPointsToRedeem?: number;
   paymentMethod?: "PAY_AT_PICKUP" | "CARD_ONLINE";
 }
 
@@ -87,7 +92,7 @@ export async function createOrder(input: CreateOrderInput) {
     dishIds.length > 0
       ? await db.dish.findMany({
           where: { id: { in: dishIds }, deletedAt: null },
-          select: { id: true, name: true, price: true, isAvailable: true },
+          select: { id: true, name: true, price: true, isAvailable: true, station: true },
         })
       : [];
 
@@ -101,6 +106,7 @@ export async function createOrder(input: CreateOrderInput) {
 
     let authoritativeBasePrice = Number(item.price);
     let authoritativeName = item.dishName.trim();
+    let station = item.station || "HOT_KITCHEN";
 
     if (item.dishId) {
       const dbDish = dishMap.get(item.dishId);
@@ -112,6 +118,7 @@ export async function createOrder(input: CreateOrderInput) {
       }
       authoritativeBasePrice = Number(dbDish.price);
       authoritativeName = dbDish.name;
+      station = dbDish.station || station;
     } else {
       if (typeof authoritativeBasePrice !== "number" || isNaN(authoritativeBasePrice) || authoritativeBasePrice <= 0) {
         throw new Error(`Invalid price for item "${item.dishName}".`);
@@ -132,6 +139,7 @@ export async function createOrder(input: CreateOrderInput) {
       dishName: authoritativeName,
       quantity: qty,
       price: unitPrice,
+      station,
       modifiers: validatedModifiers,
     };
   });
@@ -155,9 +163,22 @@ export async function createOrder(input: CreateOrderInput) {
     }
   }
 
+  let loyaltyDiscount = 0;
+  let pointsUsed = 0;
+  if (input.loyaltyPointsToRedeem && input.loyaltyPointsToRedeem >= 100) {
+    const customer = await db.customerUser.findUnique({
+      where: { email: input.customerEmail.toLowerCase().trim() },
+    });
+    if (customer && customer.loyaltyPoints >= input.loyaltyPointsToRedeem) {
+      pointsUsed = input.loyaltyPointsToRedeem;
+      loyaltyDiscount = Math.floor(pointsUsed / 100) * 50;
+    }
+  }
+
+  const totalDiscount = Math.min(subtotal, discount + loyaltyDiscount);
   const tip = Math.max(0, Math.round(Number(input.tip || 0)));
   // Standard 5% restaurant GST
-  const taxableAmount = Math.max(0, subtotal - discount);
+  const taxableAmount = Math.max(0, subtotal - totalDiscount);
   const tax = Math.round(taxableAmount * 0.05);
   const total = taxableAmount + tax + tip;
 
@@ -182,8 +203,9 @@ export async function createOrder(input: CreateOrderInput) {
       specialInstructions: input.specialInstructions?.trim() || null,
       subtotal,
       tax,
-      discount,
+      discount: totalDiscount,
       total,
+      loyaltyPointsUsed: pointsUsed,
       paymentStatus,
       orderStatus: "PENDING",
       couponCode: appliedCoupon,
@@ -193,6 +215,8 @@ export async function createOrder(input: CreateOrderInput) {
           dishName: item.dishName,
           quantity: item.quantity,
           price: item.price,
+          station: item.station,
+          isCompleted: false,
           modifiers: item.modifiers.length > 0
             ? {
                 create: item.modifiers.map((m) => ({
@@ -212,6 +236,33 @@ export async function createOrder(input: CreateOrderInput) {
         },
       },
     },
+  });
+
+  // Deduct redeemed loyalty points if any
+  if (pointsUsed > 0) {
+    const customer = await db.customerUser.findUnique({
+      where: { email: order.customerEmail },
+    });
+    if (customer) {
+      await redeemPoints(customer.id, pointsUsed, order.id).catch(() => {});
+    }
+  }
+
+  // Deplete inventory and auto-86 if stock reaches 0
+  await depleteInventoryForOrder(order.id).catch((err) => {
+    console.error("depleteInventoryForOrder error:", err);
+  });
+
+  // Table occupancy if Dine-In
+  if (order.diningMode === "DINE_IN" && order.tableNumber) {
+    await occupyTableWithOrder(order.tableNumber, order.id).catch((err) => {
+      console.error("occupyTableWithOrder error:", err);
+    });
+  }
+
+  // Award customer loyalty points
+  await processLoyaltyForOrder(order.id).catch((err) => {
+    console.error("processLoyaltyForOrder error:", err);
   });
 
   const tenantId = order.tenantId || "spice-saffron";
@@ -364,7 +415,52 @@ export async function updateOrderStatus(
     },
   }).catch(() => {});
 
+  if ((status === "COMPLETED" || status === "CANCELLED") && updated.tableNumber) {
+    await freeTable(updated.tableNumber).catch(() => {});
+  }
+
   return updated;
+}
+
+export async function updateOrderItemCompletion(
+  orderItemId: string,
+  isCompleted: boolean
+) {
+  const item = await db.orderItem.update({
+    where: { id: orderItemId },
+    data: { isCompleted },
+    include: {
+      order: {
+        include: {
+          items: true,
+        },
+      },
+    },
+  });
+
+  // Check if all items for this order are completed; if so, advance order to READY
+  const allCompleted = item.order.items.every((i) => i.isCompleted);
+  if (
+    allCompleted &&
+    (item.order.orderStatus === "PREPARING" || item.order.orderStatus === "CONFIRMED")
+  ) {
+    await updateOrderStatus(item.order.id, "READY");
+  }
+
+  const tenantId = item.order.tenantId || "spice-saffron";
+  broadcastEvent({
+    type: "kds:item_bumped",
+    tenantId,
+    timestamp: new Date().toISOString(),
+    data: {
+      orderId: item.order.id,
+      orderItemId: item.id,
+      isCompleted: item.isCompleted,
+      allCompleted,
+    },
+  });
+
+  return item;
 }
 
 export async function getOrderStats() {
@@ -398,3 +494,4 @@ export async function getOrderStats() {
     return { activeOrders: 0, completedToday: 0, todayRevenue: 0 };
   }
 }
+

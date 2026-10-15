@@ -66,6 +66,8 @@ export async function getActiveKDSOrdersAction() {
       dishName: i.dishName,
       quantity: i.quantity,
       price: Number(i.price),
+      station: i.station,
+      isCompleted: i.isCompleted,
       modifiers: i.modifiers.map((m) => ({
         groupName: m.groupName,
         optionName: m.optionName,
@@ -73,4 +75,21 @@ export async function getActiveKDSOrdersAction() {
       })),
     })),
   }));
+}
+
+export async function adminBumpOrderItemAction(
+  orderItemId: string,
+  isCompleted: boolean
+): Promise<ActionState> {
+  await requirePermission(permissions.VIEW_MENU);
+
+  try {
+    const { updateOrderItemCompletion } = await import("@/lib/services/orders");
+    await updateOrderItemCompletion(orderItemId, isCompleted);
+    revalidatePath("/admin/orders");
+    return { ok: true };
+  } catch (error) {
+    console.error("adminBumpOrderItemAction error:", error);
+    return { ok: false, error: "Failed to bump order item." };
+  }
 }

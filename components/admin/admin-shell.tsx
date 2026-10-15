@@ -23,6 +23,8 @@ import {
   Flame,
   KeyRound,
   ShieldCheck,
+  Armchair,
+  Boxes,
 } from "lucide-react";
 import { adminNavigation } from "@/config/navigation";
 import { cn } from "@/lib/utils/cn";
@@ -32,6 +34,8 @@ import { useNotifications } from "@/hooks/use-notifications";
 const navIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   "/admin": LayoutDashboard,
   "/admin/kds": Flame,
+  "/admin/tables": Armchair,
+  "/admin/inventory": Boxes,
   "/admin/reservations": Calendar,
   "/admin/orders": ShoppingBag,
   "/admin/dishes": UtensilsCrossed,

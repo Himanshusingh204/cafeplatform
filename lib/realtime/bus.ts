@@ -4,7 +4,10 @@ export type RealtimeEventType =
   | "order:created"
   | "order:status_changed"
   | "reservation:created"
-  | "kds:ticket_updated";
+  | "kds:ticket_updated"
+  | "kds:item_bumped"
+  | "table:status_changed"
+  | "waitlist:updated";
 
 export interface RealtimeEventPayload {
   type: RealtimeEventType;

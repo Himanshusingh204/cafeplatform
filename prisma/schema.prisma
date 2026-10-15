@@ -87,6 +87,33 @@ enum WebhookStatus {
   FAILED
 }
 
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  DIRTY
+}
+
+enum TableShape {
+  ROUND
+  RECTANGLE
+  BOOTH
+}
+
+enum WaitlistStatus {
+  WAITING
+  NOTIFIED
+  SEATED
+  CANCELLED
+}
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
 model Tenant {
   id               String           @id @default(uuid()) @db.Uuid
   slug             String           @unique
@@ -104,6 +131,10 @@ model Tenant {
   reservations     Reservation[]
   apiKeys          ApiKey[]
   webhookEndpoints WebhookSubscription[]
+  diningTables     DiningTable[]
+  waitlistEntries  WaitlistEntry[]
+  ingredients      Ingredient[]
+  customerUsers    CustomerUser[]
 
   @@index([slug])
   @@index([customDomain])
@@ -192,6 +223,7 @@ model Dish {
   tenant           Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category         Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   modifierGroups   DishModifierGroup[]
+  recipeItems      RecipeItem[]
 
   @@index([categoryId])
   @@index([slug])
@@ -283,6 +315,7 @@ model Order {
   id                  String        @id @default(uuid()) @db.Uuid
   tenantId            String?       @db.Uuid
   orderNumber         String        @unique
+  customerUserId      String?       @db.Uuid
   customerName        String
   customerEmail       String
   customerPhone       String
@@ -295,6 +328,8 @@ model Order {
   tax                 Decimal       @db.Decimal(10, 2)
   discount            Decimal       @default(0) @db.Decimal(10, 2)
   total               Decimal       @db.Decimal(10, 2)
+  loyaltyPointsEarned Int           @default(0)
+  loyaltyPointsUsed   Int           @default(0)
   paymentStatus       PaymentStatus @default(PENDING)
   orderStatus         OrderStatus   @default(PENDING)
   paymentMethod       String?       @default("PAY_AT_PICKUP")
@@ -306,27 +341,32 @@ model Order {
   updatedAt           DateTime      @updatedAt
 
   tenant              Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerUser        CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: SetNull)
   items               OrderItem[]
 
   @@index([orderStatus])
   @@index([paymentStatus])
   @@index([gatewayOrderId])
+  @@index([customerUserId])
   @@index([createdAt])
   @@index([tenantId])
 }
 
 model OrderItem {
-  id       String  @id @default(uuid()) @db.Uuid
-  orderId  String  @db.Uuid
-  dishId   String? @db.Uuid
-  dishName String
-  quantity Int
-  price    Decimal @db.Decimal(10, 2)
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @db.Uuid
+  dishId      String? @db.Uuid
+  dishName    String
+  quantity    Int
+  price       Decimal @db.Decimal(10, 2)
+  station     String  @default("HOT_KITCHEN")
+  isCompleted Boolean @default(false)
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  modifiers OrderItemModifier[]
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  modifiers   OrderItemModifier[]
 
   @@index([orderId])
+  @@index([station])
 }
 
 model DishModifierGroup {
@@ -454,5 +494,119 @@ model WebhookDelivery {
   subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@index([subscriptionId])
+  @@index([createdAt])
+}
+
+model Ingredient {
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String?      @db.Uuid
+  name         String
+  unit         String       @default("pcs")
+  currentStock Decimal      @default(0) @db.Decimal(10, 2)
+  parLevel     Decimal      @default(10) @db.Decimal(10, 2)
+  costPerUnit  Decimal?     @db.Decimal(10, 2)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  tenant       Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipeItems  RecipeItem[]
+
+  @@index([tenantId])
+  @@index([name])
+}
+
+model RecipeItem {
+  id               String     @id @default(uuid()) @db.Uuid
+  dishId           String     @db.Uuid
+  ingredientId     String     @db.Uuid
+  quantityRequired Decimal    @db.Decimal(10, 2)
+  createdAt        DateTime   @default(now())
+
+  dish             Dish       @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  ingredient       Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([dishId, ingredientId])
+  @@index([dishId])
+  @@index([ingredientId])
+}
+
+model DiningTable {
+  id             String      @id @default(uuid()) @db.Uuid
+  tenantId       String?     @db.Uuid
+  tableNumber    String
+  capacity       Int         @default(4)
+  status         TableStatus @default(AVAILABLE)
+  shape          TableShape  @default(RECTANGLE)
+  posX           Int         @default(100)
+  posY           Int         @default(100)
+  width          Int         @default(120)
+  height         Int         @default(80)
+  section        String      @default("Main Dining")
+  currentOrderId String?     @db.Uuid
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  tenant         Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tableNumber])
+  @@index([status])
+}
+
+model WaitlistEntry {
+  id                   String         @id @default(uuid()) @db.Uuid
+  tenantId             String?        @db.Uuid
+  customerName         String
+  customerPhone        String
+  partySize            Int
+  specialNotes         String?
+  status               WaitlistStatus @default(WAITING)
+  estimatedWaitMinutes Int            @default(15)
+  notifiedAt           DateTime?
+  seatedAt             DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  tenant               Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CustomerUser {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String?         @db.Uuid
+  name          String
+  email         String          @unique
+  phone         String?
+  loyaltyPoints Int             @default(0)
+  loyaltyTier   LoyaltyTier     @default(BRONZE)
+  lifetimeSpend Decimal         @default(0) @db.Decimal(10, 2)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  ledgerEntries LoyaltyLedger[]
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([loyaltyTier])
+}
+
+model LoyaltyLedger {
+  id          String       @id @default(uuid()) @db.Uuid
+  customerId  String       @db.Uuid
+  orderId     String?      @db.Uuid
+  pointsDelta Int
+  reason      String
+  createdAt   DateTime     @default(now())
+
+  customer    CustomerUser @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([orderId])
   @@index([createdAt])
 }
