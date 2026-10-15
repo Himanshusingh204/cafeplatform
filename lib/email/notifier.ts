@@ -13,7 +13,7 @@ interface ContactNotification {
   message: string;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -24,6 +24,56 @@ function escapeHtml(value: string): string {
 
 export function isContactNotificationConfigured(): boolean {
   return Boolean(process.env.EMAIL_API_KEY && process.env.CONTACT_NOTIFY_EMAIL);
+}
+
+/** Whether transactional email can be sent at all (the API key is present). */
+export function isEmailConfigured(): boolean {
+  return Boolean(process.env.EMAIL_API_KEY);
+}
+
+export interface TransactionalEmail {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  replyTo?: string;
+}
+
+/**
+ * Low-level transactional send over the Resend HTTP API.
+ *
+ * Never throws: callers decide whether a failure is retryable. A hard timeout
+ * keeps a slow provider from pinning a request or a background worker.
+ */
+export async function sendEmail(input: TransactionalEmail): Promise<{ sent: boolean }> {
+  const apiKey = process.env.EMAIL_API_KEY;
+  if (!apiKey) return { sent: false };
+
+  const from = process.env.EMAIL_FROM_ADDRESS ?? `${site.name} <onboarding@resend.dev>`;
+
+  try {
+    const response = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+        ...(input.text ? { text: input.text } : {}),
+        ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    return { sent: response.ok };
+  } catch (error) {
+    logger.error({ event: "email.send", result: "failed", error: String(error) });
+    return { sent: false };
+  }
 }
 
 function buildBody(input: ContactNotification) {
@@ -117,9 +167,6 @@ export async function sendReservationConfirmation(input: {
   timeSlot: string;
   guests: number;
 }): Promise<{ sent: boolean }> {
-  if (!process.env.EMAIL_API_KEY) return { sent: false };
-
-  const from = process.env.EMAIL_FROM_ADDRESS ?? `${site.name} <onboarding@resend.dev>`;
   const html = `
     <div style="font-family:sans-serif;max-width:560px;color:#222">
       <h2 style="margin:0 0 8px;color:#7a1d1d">Table Reservation Confirmed</h2>
@@ -137,24 +184,11 @@ export async function sendReservationConfirmation(input: {
     </div>
   `;
 
-  try {
-    const res = await fetch(RESEND_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.EMAIL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: input.email,
-        subject: `Table Reservation Confirmed (${input.referenceCode}) — ${site.name}`,
-        html,
-      }),
-    });
-    return { sent: res.ok };
-  } catch {
-    return { sent: false };
-  }
+  return sendEmail({
+    to: input.email,
+    subject: `Table Reservation Confirmed (${input.referenceCode}) — ${site.name}`,
+    html,
+  });
 }
 
 export async function sendOrderReceipt(input: {
@@ -165,9 +199,6 @@ export async function sendOrderReceipt(input: {
   total: number;
   items: { dishName: string; quantity: number; price: number }[];
 }): Promise<{ sent: boolean }> {
-  if (!process.env.EMAIL_API_KEY) return { sent: false };
-
-  const from = process.env.EMAIL_FROM_ADDRESS ?? `${site.name} <onboarding@resend.dev>`;
   const itemsHtml = input.items
     .map(
       (item) =>
@@ -196,22 +227,9 @@ export async function sendOrderReceipt(input: {
     </div>
   `;
 
-  try {
-    const res = await fetch(RESEND_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.EMAIL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: input.customerEmail,
-        subject: `Your Order Receipt (${input.orderNumber}) — ${site.name}`,
-        html,
-      }),
-    });
-    return { sent: res.ok };
-  } catch {
-    return { sent: false };
-  }
+  return sendEmail({
+    to: input.customerEmail,
+    subject: `Your Order Receipt (${input.orderNumber}) — ${site.name}`,
+    html,
+  });
 }

@@ -23,11 +23,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   licensing clarity.
 - `.gitignore` updated so the public `docs/` set is tracked, while internal
   notes remain private.
+- **Phase 1 — deployability & correctness (in progress).** All order creation,
+  coupon, loyalty, inventory-depletion, station-routing and tenant-assignment
+  logic now flows through the shared `lib/services/orders.ts`, so the Next.js
+  Route Handler and any future adapter cannot diverge.
+- `generateOrderNumber()` now returns `ORD-YYMMDD-XXXXXX` (Crockford base32)
+  instead of `ORD-####`, and order creation retries on a unique-constraint
+  violation. The previous scheme had only 9 000 values and could collide on a
+  globally-unique column.
+- The `EMAIL_DISPATCH` job handler now sends through the transactional email
+  notifier instead of only logging, and throws on provider failure so the queue
+  retries with backoff and dead-letters. It is a logged no-op when no provider
+  is configured.
+- `createOrder` accepts and persists an explicit `tenantId`, and sends the
+  customer receipt best-effort after the order is committed.
 
 ### Fixed
 
 - Removed README links to files that are intentionally git-ignored, which
   previously produced 404s on GitHub.
+
+### Security
+
+- **Order pricing is now authoritative on the API.** `app/api/v1/orders/route.ts`
+  previously computed the subtotal from a client-supplied `price`; it now
+  delegates to `createOrder`, which reads the catalog price from the database and
+  ignores the client value. A tampered price is overridden or the request is
+  rejected — it is never trusted.
 
 ---
 

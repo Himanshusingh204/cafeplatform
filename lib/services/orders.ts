@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomBytes } from "node:crypto";
+
 import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
 import { broadcastEvent } from "@/lib/realtime/bus";
@@ -7,7 +9,19 @@ import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
 import { depleteInventoryForOrder } from "@/lib/services/inventory";
 import { occupyTableWithOrder, freeTable } from "@/lib/services/tables";
 import { processLoyaltyForOrder, redeemPoints } from "@/lib/services/loyalty";
+import { sendOrderReceipt } from "@/lib/email/notifier";
 import type { OrderStatus, PaymentStatus, DiningMode } from "@/lib/generated/prisma/enums";
+
+/**
+ * Thrown when an order fails a business rule (bad quantity, dish unavailable,
+ * a tampered client price). Adapters must map this to HTTP 422 — never a 500.
+ */
+export class OrderValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrderValidationError";
+  }
+}
 
 export interface OrderItemModifierInput {
   groupName: string;
@@ -19,12 +33,15 @@ export interface OrderItemInput {
   dishId?: string;
   dishName: string;
   quantity: number;
-  price: number;
+  /** Required only for ad-hoc items with no `dishId`; always ignored when `dishId` is set. */
+  price?: number;
   station?: string;
   modifiers?: OrderItemModifierInput[];
 }
 
 export interface CreateOrderInput {
+  /** Owning tenant. Omit only for legacy, tenant-less orders. */
+  tenantId?: string | null;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -37,6 +54,8 @@ export interface CreateOrderInput {
   couponCode?: string;
   loyaltyPointsToRedeem?: number;
   paymentMethod?: "PAY_AT_PICKUP" | "CARD_ONLINE";
+  /** Explicit override for trusted B2B callers (e.g. a POS that already took payment). */
+  paymentStatus?: PaymentStatus;
 }
 
 export async function validateCoupon(code: string, subtotal: number) {
@@ -72,14 +91,38 @@ export async function validateCoupon(code: string, subtotal: number) {
   }
 }
 
+// Crockford-style base32: no I, L, O or U, so an order number can be read aloud
+// without ambiguity.
+const ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const ORDER_NUMBER_SUFFIX_LENGTH = 6;
+
+/**
+ * Human-readable, collision-resistant order number: `ORD-YYMMDD-XXXXXX`.
+ *
+ * The previous `ORD-####` scheme had only 9 000 possible values, so two orders
+ * could collide on the globally-unique `orderNumber` column. This yields
+ * 32^6 ≈ 1.07 billion suffixes per day, and `createOrder` still retries on a
+ * unique-constraint violation as a final guard.
+ */
 export function generateOrderNumber(): string {
-  const digits = Math.floor(1000 + Math.random() * 9000);
-  return `ORD-${digits}`;
+  const now = new Date();
+  const stamp =
+    String(now.getUTCFullYear()).slice(-2) +
+    String(now.getUTCMonth() + 1).padStart(2, "0") +
+    String(now.getUTCDate()).padStart(2, "0");
+
+  const bytes = randomBytes(ORDER_NUMBER_SUFFIX_LENGTH);
+  let suffix = "";
+  for (let i = 0; i < ORDER_NUMBER_SUFFIX_LENGTH; i += 1) {
+    suffix += ORDER_NUMBER_ALPHABET[bytes[i] % ORDER_NUMBER_ALPHABET.length];
+  }
+
+  return `ORD-${stamp}-${suffix}`;
 }
 
 export async function createOrder(input: CreateOrderInput) {
   if (!input.items || input.items.length === 0) {
-    throw new Error("Order must have at least one item.");
+    throw new OrderValidationError("Order must have at least one item.");
   }
 
   // Security Check: Look up authoritative dishes from the database when dishId is supplied.
@@ -101,7 +144,7 @@ export async function createOrder(input: CreateOrderInput) {
   const validatedItems = input.items.map((item) => {
     const qty = Math.floor(Number(item.quantity));
     if (!Number.isInteger(qty) || qty < 1 || qty > 99) {
-      throw new Error(`Invalid quantity for "${item.dishName}". Must be between 1 and 99.`);
+      throw new OrderValidationError(`Invalid quantity for "${item.dishName}". Must be between 1 and 99.`);
     }
 
     let authoritativeBasePrice = Number(item.price);
@@ -111,17 +154,17 @@ export async function createOrder(input: CreateOrderInput) {
     if (item.dishId) {
       const dbDish = dishMap.get(item.dishId);
       if (!dbDish) {
-        throw new Error(`Dish "${item.dishName}" is no longer available.`);
+        throw new OrderValidationError(`Dish "${item.dishName}" is no longer available.`);
       }
       if (!dbDish.isAvailable) {
-        throw new Error(`Dish "${dbDish.name}" is currently marked out of stock.`);
+        throw new OrderValidationError(`Dish "${dbDish.name}" is currently marked out of stock.`);
       }
       authoritativeBasePrice = Number(dbDish.price);
       authoritativeName = dbDish.name;
       station = dbDish.station || station;
     } else {
       if (typeof authoritativeBasePrice !== "number" || isNaN(authoritativeBasePrice) || authoritativeBasePrice <= 0) {
-        throw new Error(`Invalid price for item "${item.dishName}".`);
+        throw new OrderValidationError(`Invalid price for item "${item.dishName}".`);
       }
     }
 
@@ -150,7 +193,7 @@ export async function createOrder(input: CreateOrderInput) {
   );
 
   if (subtotal <= 0) {
-    throw new Error("Order subtotal must be greater than zero.");
+    throw new OrderValidationError("Order subtotal must be greater than zero.");
   }
 
   let discount = 0;
@@ -185,58 +228,68 @@ export async function createOrder(input: CreateOrderInput) {
   const diningMode: DiningMode = input.diningMode || "TAKEAWAY";
   const pickupTime = input.pickupTime?.trim() || (diningMode === "DINE_IN" ? "DINE-IN" : "ASAP (~20–30 mins)");
 
-  const orderNumber = generateOrderNumber();
-  // Online orders start in PENDING state until confirmed via gateway signature or webhook
+  // Online orders start in PENDING state until confirmed via a gateway signature
+  // or webhook, unless a trusted B2B caller explicitly states otherwise.
   const paymentStatus: PaymentStatus =
-    input.paymentMethod === "CARD_ONLINE" ? "PENDING" : "PAY_AT_PICKUP";
+    input.paymentStatus ??
+    (input.paymentMethod === "CARD_ONLINE" ? "PENDING" : "PAY_AT_PICKUP");
 
-  const order = await db.order.create({
-    data: {
-      orderNumber,
-      customerName: input.customerName.trim(),
-      customerEmail: input.customerEmail.toLowerCase().trim(),
-      customerPhone: input.customerPhone.trim(),
-      pickupTime,
-      diningMode,
-      tableNumber: input.tableNumber?.trim() || null,
-      tip,
-      specialInstructions: input.specialInstructions?.trim() || null,
-      subtotal,
-      tax,
-      discount: totalDiscount,
-      total,
-      loyaltyPointsUsed: pointsUsed,
-      paymentStatus,
-      orderStatus: "PENDING",
-      couponCode: appliedCoupon,
-      items: {
-        create: validatedItems.map((item) => ({
-          dishId: item.dishId,
-          dishName: item.dishName,
-          quantity: item.quantity,
-          price: item.price,
-          station: item.station,
-          isCompleted: false,
-          modifiers: item.modifiers.length > 0
-            ? {
-                create: item.modifiers.map((m) => ({
-                  groupName: m.groupName,
-                  optionName: m.optionName,
-                  priceDelta: m.priceDelta,
-                })),
-              }
-            : undefined,
-        })),
-      },
+  const orderData = {
+    tenantId: input.tenantId ?? null,
+    customerName: input.customerName.trim(),
+    customerEmail: input.customerEmail.toLowerCase().trim(),
+    customerPhone: input.customerPhone.trim(),
+    pickupTime,
+    diningMode,
+    tableNumber: input.tableNumber?.trim() || null,
+    tip,
+    specialInstructions: input.specialInstructions?.trim() || null,
+    subtotal,
+    tax,
+    discount: totalDiscount,
+    total,
+    loyaltyPointsUsed: pointsUsed,
+    paymentStatus,
+    orderStatus: "PENDING" as const,
+    couponCode: appliedCoupon,
+    items: {
+      create: validatedItems.map((item) => ({
+        dishId: item.dishId,
+        dishName: item.dishName,
+        quantity: item.quantity,
+        price: item.price,
+        station: item.station,
+        isCompleted: false,
+        modifiers: item.modifiers.length > 0
+          ? {
+              create: item.modifiers.map((m) => ({
+                groupName: m.groupName,
+                optionName: m.optionName,
+                priceDelta: m.priceDelta,
+              })),
+            }
+          : undefined,
+      })),
     },
-    include: {
-      items: {
-        include: {
-          modifiers: true,
-        },
-      },
-    },
-  });
+  };
+
+  // Retry with a fresh number if the generated one collides on the unique index.
+  const createWithRetry = async () => {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await db.order.create({
+          data: { ...orderData, orderNumber: generateOrderNumber() },
+          include: { items: { include: { modifiers: true } } },
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code === "P2002" && attempt < 3) continue;
+        throw error;
+      }
+    }
+    throw new Error("Could not allocate a unique order number after 3 attempts.");
+  };
+
+  const order = await createWithRetry();
 
   // Deduct redeemed loyalty points if any
   if (pointsUsed > 0) {
@@ -297,6 +350,21 @@ export async function createOrder(input: CreateOrderInput) {
       pickupTime: order.pickupTime,
       items: order.items,
     },
+  }).catch(() => {});
+
+  // Best-effort customer receipt. Phase 3 replaces this direct call with the
+  // durable outbox so it survives a deploy; today it must never fail an order.
+  void sendOrderReceipt({
+    customerName: order.customerName,
+    customerEmail: order.customerEmail,
+    orderNumber: order.orderNumber,
+    pickupTime: order.pickupTime,
+    total: Number(order.total),
+    items: order.items.map((item) => ({
+      dishName: item.dishName,
+      quantity: item.quantity,
+      price: Number(item.price),
+    })),
   }).catch(() => {});
 
   return order;

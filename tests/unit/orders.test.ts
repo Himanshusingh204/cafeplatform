@@ -2,12 +2,20 @@ import { describe, it, expect } from "vitest";
 import { generateOrderNumber } from "@/lib/services/orders";
 
 describe("Orders Service Unit Tests", () => {
-  it("generates an order number with 'ORD-' prefix and 4 digits", () => {
-    const orderNum1 = generateOrderNumber();
-    const orderNum2 = generateOrderNumber();
+  it("generates a human-readable ORD-YYMMDD-XXXXXX order number", () => {
+    // Base32 without I, L, O, U so the code can be read aloud unambiguously.
+    const pattern = /^ORD-\d{6}-[0-9A-HJKMNP-TV-Z]{6}$/;
+    expect(generateOrderNumber()).toMatch(pattern);
+    expect(generateOrderNumber()).toMatch(pattern);
+  });
 
-    expect(orderNum1).toMatch(/^ORD-\d{4}$/);
-    expect(orderNum2).toMatch(/^ORD-\d{4}$/);
+  it("does not collide across many generations", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 2000; i += 1) {
+      seen.add(generateOrderNumber());
+    }
+    // 32^6 ≈ 1.07e9 suffixes per day; 2000 draws must all be distinct.
+    expect(seen.size).toBe(2000);
   });
 
   it("calculates 5% GST and discount correctly", () => {

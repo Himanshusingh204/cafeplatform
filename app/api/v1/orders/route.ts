@@ -2,28 +2,45 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
 import { db } from "@/lib/db/prisma";
-import { broadcastEvent } from "@/lib/realtime/bus";
-import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
+import { createOrder, OrderValidationError } from "@/lib/services/orders";
 import type { OrderStatus } from "@/lib/generated/prisma/enums";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const orderItemSchema = z.object({
+  dishId: z.string().uuid().optional(),
+  dishName: z.string().min(1).max(200),
+  quantity: z.number().int().positive().max(50),
+  // Accepted only for ad-hoc items without a dishId. When dishId is present the
+  // server always uses the authoritative catalog price and ignores this field.
+  price: z.number().positive().optional(),
+  station: z.string().max(40).optional(),
+  modifiers: z
+    .array(
+      z.object({
+        groupName: z.string().min(1).max(80),
+        optionName: z.string().min(1).max(80),
+        priceDelta: z.number().nonnegative(),
+      })
+    )
+    .optional(),
+});
 
 const createOrderSchema = z.object({
   customerName: z.string().min(2).max(100),
   customerEmail: z.string().email(),
   customerPhone: z.string().min(8).max(20),
-  pickupTime: z.string().min(1),
+  pickupTime: z.string().max(80).optional(),
+  diningMode: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY"]).optional(),
+  tableNumber: z.string().max(20).optional(),
+  tip: z.number().nonnegative().max(100000).optional(),
   specialInstructions: z.string().max(500).optional(),
-  items: z.array(
-    z.object({
-      dishId: z.string().uuid().optional(),
-      dishName: z.string().min(1),
-      quantity: z.number().int().positive().max(50),
-      price: z.number().positive(),
-    })
-  ).min(1, "At least one item is required"),
-  paymentStatus: z.enum(["PENDING", "PAID", "PAY_AT_PICKUP"]).default("PENDING"),
-  couponCode: z.string().optional(),
+  items: z.array(orderItemSchema).min(1, "At least one item is required"),
+  couponCode: z.string().max(40).optional(),
+  loyaltyPointsToRedeem: z.number().int().nonnegative().optional(),
+  paymentMethod: z.enum(["PAY_AT_PICKUP", "CARD_ONLINE"]).optional(),
+  paymentStatus: z.enum(["PENDING", "PAID", "PAY_AT_PICKUP"]).optional(),
 });
 
 /**
@@ -64,6 +81,11 @@ export async function GET(request: Request) {
 /**
  * POST /api/v1/orders
  * B2B S2S order ingestion (e.g. from POS hardware, delivery aggregators, kiosk).
+ *
+ * All pricing, coupon, loyalty, inventory and station routing is delegated to
+ * the shared `createOrder` service so this adapter holds no business logic and
+ * cannot diverge from the Express adapter or the customer checkout flow.
+ * Client-supplied prices are never trusted for catalog dishes.
  */
 export async function POST(request: Request) {
   const auth = await verifyS2SRequest(request, "orders:write");
@@ -71,7 +93,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  let body;
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
@@ -86,81 +108,21 @@ export async function POST(request: Request) {
     );
   }
 
-  const data = parsed.data;
-  const tenantId = auth.context.tenantId;
+  try {
+    const order = await createOrder({
+      ...parsed.data,
+      tenantId: auth.context.tenantId,
+    });
 
-  // Calculate pricing
-  const subtotal = data.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = Math.round(subtotal * 0.05 * 100) / 100; // 5% GST
-  const discount = 0;
-  const total = subtotal + tax - discount;
-
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${randomSuffix}`;
-
-  const order = await db.order.create({
-    data: {
-      tenantId,
-      orderNumber,
-      customerName: data.customerName,
-      customerEmail: data.customerEmail,
-      customerPhone: data.customerPhone,
-      pickupTime: data.pickupTime,
-      specialInstructions: data.specialInstructions,
-      subtotal,
-      tax,
-      discount,
-      total,
-      paymentStatus: data.paymentStatus,
-      orderStatus: "PENDING",
-      couponCode: data.couponCode,
-      items: {
-        create: data.items.map((i) => ({
-          dishId: i.dishId,
-          dishName: i.dishName,
-          quantity: i.quantity,
-          price: i.price,
-        })),
-      },
-    },
-    include: {
-      items: true,
-    },
-  });
-
-  // Broadcast to Real-Time Kitchen Display System (KDS)
-  broadcastEvent({
-    type: "order:created",
-    tenantId,
-    timestamp: new Date().toISOString(),
-    data: {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      total: Number(order.total),
-      pickupTime: order.pickupTime,
-      items: order.items,
-    },
-  });
-
-  // Dispatch outbound webhook to partner endpoints
-  dispatchWebhook({
-    event: "order.created",
-    tenantId,
-    data: {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      total: Number(order.total),
-      customerName: order.customerName,
-      pickupTime: order.pickupTime,
-    },
-  }).catch(() => {});
-
-  return NextResponse.json(
-    {
-      message: "Order successfully ingested",
-      order,
-    },
-    { status: 201 }
-  );
+    return NextResponse.json(
+      { message: "Order successfully ingested", order },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error instanceof OrderValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 422 });
+    }
+    console.error("Order ingestion failed:", error);
+    return NextResponse.json({ error: "Unable to create order" }, { status: 500 });
+  }
 }

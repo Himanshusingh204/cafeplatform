@@ -91,10 +91,21 @@ Every acceptance criterion below is phrased to build on this baseline.
 | Tests | `npx vitest run` | 148 passed / 27 files |
 | Build | `npm run build` | Succeeds — 40 routes, 1 module-not-found warning, 1 slow-query warning |
 
-**Pre-work caution:** the working tree currently holds **uncommitted Phase 2.2 work**
-(stations, inventory, tables, waitlist, loyalty) plus an unapplied migration
-`20260905180000_add_stations_inventory_tables_loyalty`. This must be committed or
-stashed **before Phase 1** (risk [R10](#15-risk-register)).
+**Pre-work status:** the in-flight work (stations, inventory, tables, waitlist,
+loyalty) plus migration `20260905180000_add_stations_inventory_tables_loyalty` was
+committed in `46998ea` on 2026-10-15, and the documentation layer in `f233136`.
+Risk [R10](#15-risk-register) is therefore closed: the tree is clean and the gates
+were green on the committed state.
+
+### 1.5 A note on phase numbering
+
+Commits that predate this roadmap use their own phase labels: `a17057b` "Phase 1"
+(enterprise resilience — idempotency, cache-aside, job queue, DB telemetry) and
+`022ab0c` "Phase 2.1" (dish modifiers, dine-in QR ordering, tipping, operating
+hours, thermal chits). Those labels are **historical and unrelated** to the
+numbering used here. This roadmap renumbers the forward plan from **Phase 0**, so
+"Phase 1" in this document always means *Deployability & correctness* and never the
+earlier resilience work.
 
 ---
 
@@ -147,11 +158,11 @@ professional documentation set trackable in git.
 - [x] `LICENSE` exists, names Himanshu, and states the personal-use / commercial-contact terms.
 - [x] `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `.editorconfig`, `.nvmrc` exist.
 
-> **Residual verification before Phase 1 is committed:** confirm the docs set is
-> actually staged by git (`git status` shows `docs/` files as added/modified, not
-> ignored). Phase 0's stated outcome — `docs/` tracked — must be true in the same
-> commit that starts Phase 1, otherwise risk [R10](#15-risk-register) reintroduces
-> an untracked working tree.
+> **Residual verification — confirmed 2026-10-15:** the docs set is now tracked by
+> git. `README.md`, `.gitignore`, `package.json`, `LICENSE`, `SECURITY.md`,
+> `CONTRIBUTING.md`, `CHANGELOG.md`, `.editorconfig`, `.nvmrc` and the whole of
+> `docs/` were committed in `f233136`, so Phase 0's stated outcome — `docs/`
+> tracked — is true, and risk [R10](#15-risk-register) no longer applies.
 
 ### Rollback
 
@@ -174,6 +185,28 @@ Documentation-only; revert the doc/license commits. No runtime impact.
 The single most valuable phase: make the platform **actually deploy**, make the
 **order money path authoritative on both adapters**, and make confirmation emails
 **actually send**. Nothing else is worth doing until this ships.
+
+### Progress — 2026-10-15 (partial)
+
+- [x] In-flight work committed (`46998ea`); working tree clean; gates green.
+- [x] Order creation delegates to `lib/services/orders.ts` — the Route Handler no
+      longer trusts a client-supplied price (closes the P0-1 API surface).
+- [x] Collision-resistant order numbers (`ORD-YYMMDD-XXXXXX`) with a
+      unique-violation retry.
+- [x] `EMAIL_DISPATCH` sends through the notifier and fails loudly so the queue
+      retries and dead-letters; customer receipts fire on order creation
+      (closes P0-5).
+- [x] `createOrder` accepts and persists `tenantId`.
+- [x] Tests added: order pricing (tamper / out-of-stock / ad-hoc / tenant),
+      order-number entropy, and email-dispatch behaviour. Suite is **156 tests
+      across 29 files**.
+
+Still open in this phase:
+
+- [ ] `server/api.ts` trimmed to a thin adapter (it still owns menu caching).
+- [ ] Uploads (P0-4) — blocked on an object-storage decision.
+- [ ] Idempotency key + rate limit on the Next.js order route.
+- [ ] Minimal two-adapter parity smoke (the full contract test is Phase 5).
 
 ### 1.1 Pre-work — protect in-flight work (R10)
 
