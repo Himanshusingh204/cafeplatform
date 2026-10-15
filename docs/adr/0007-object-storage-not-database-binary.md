@@ -59,11 +59,11 @@ store — and never in PostgreSQL.**
   is available, the endpoint returns an error; it must never persist base64
   bytes into the database as a silent fallback.
 
-**Not yet implemented:** the object-store installation, magic-byte validation and
-the removal of the `data:`-URL fallback are the target for the Phase 1
-(Deployability & correctness) and Phase 6 (SEO & performance) work in
-[`../ROADMAP.md`](../ROADMAP.md). The confirmed build warning
-(`app/api/upload/route.ts:65`, `@vercel/blob` not installed) remains today.
+**Implemented:** see [`../../lib/storage/`](../../lib/storage) — a driver abstraction
+with a vendor-neutral S3-compatible driver (`@aws-sdk/client-s3`), magic-byte
+validation, a size cap, metadata-stripping re-encode, randomised keys, and an
+explicit `503` when no store is configured. The `data:` fallback is deleted
+(2026-10-15).
 
 ## Consequences
 

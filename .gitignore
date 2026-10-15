@@ -54,6 +54,9 @@ yarn-error.log*
 # Vercel
 .vercel
 
+# Locally-stored uploads (dev only; production uses object storage)
+/public/uploads/
+
 # AI Agent Tooling & Scratchpad Files (Never Publish to Git)
 .agents/
 .claude/

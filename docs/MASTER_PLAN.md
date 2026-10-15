@@ -49,7 +49,7 @@ in four places:**
 | # | Gap | Why it blocks production |
 | :-- | :--- | :--- |
 | 1 | **State lives in process memory** — the event bus, job queue, cache fallback and rate limiter are `new Map()` / `EventEmitter` singletons | On serverless or with more than one instance, kitchen tickets, emails, webhooks and rate limits silently break or diverge per instance |
-| 2 | **The API surface cannot deploy as designed** — `vercel.json` deploys Next.js, but the architecture promises an Express service on port `4000` | The B2B/KDS API is dead in production; `@vercel/blob` is imported but not installed, so uploads fall through to a `data:` URL written into Postgres |
+| 2 | **The API surface cannot deploy as designed** — `vercel.json` deploys Next.js, but the architecture promises an Express service on port `4000` | The B2B/KDS API is dead in production on Vercel. (The upload `data:`-URL corruption that accompanied this was fixed in Phase 1.) |
 | 3 | **The database is under-indexed for its own queries and the tenant filter is an `OR`** | Slow queries already appear at build time (`Dish.findMany` at 195 ms); tenant `null`-fallback is both a performance and an isolation hazard |
 | 4 | **Content weight defeats the Lighthouse goal** — shipped images are 0.95–2.9 MB each, and the hero image is the LCP element | No amount of code tuning reaches 100 Performance with a 951 KB LCP image |
 
@@ -84,7 +84,7 @@ come before optimisation**, and each phase ships independently.
 | ESLint | `npm run lint` | ✅ Clean — 0 warnings |
 | Unit / integration / security | `npx vitest run` | ✅ **148 passed / 27 files** (~57 s, serial) |
 | Production build | `npm run build` | ✅ Succeeds — 40 routes, 1 warning |
-| Build warning | — | ⚠️ `Module not found: Can't resolve '@vercel/blob'` (`app/api/upload/route.ts:65`) |
+| Build warning | — | ✅ Resolved 2026-10-15 — the `@vercel/blob` import was removed in Phase 1 |
 | Build telemetry | — | ⚠️ `db.slow_query` — `Dish.findMany` at **195 ms** |
 | Dependency audit | `npm audit` | Weekly in CI at `--audit-level=critical` (too lax) |
 
@@ -609,7 +609,7 @@ and exit criteria are in [`ROADMAP.md`](./ROADMAP.md).
 | Phase | Theme | Primary outcome | Risk |
 | :--- | :--- | :--- | :--- |
 | **0** | **Documentation & licensing** *(this deliverable)* | Truthful README, proprietary LICENSE + copyright, professional docs set, fixed `.gitignore` | ✅ Done |
-| **1** | **Deployability** | The system actually deploys and the API is reachable in production; install `@vercel/blob` or replace the upload path | High value, low risk |
+| **1** | **Deployability** | The system actually deploys and the API is reachable in production; uploads use object storage | High value, low risk |
 | **2** | **Database integrity & indexing** | `tenantId NOT NULL`, fail-closed resolution, composite/partial indexes, redundant indexes dropped, verified with `EXPLAIN` | Medium |
 | **3** | **Stateless runtime** | Redis for cache, rate limit, idempotency, pub/sub; durable DB-backed outbox queue; worker + cron | High |
 | **4** | **Security hardening** | Strict CORS, tighter CSP, RLS, per-endpoint rate limits, audit-driven fixes | Medium |
@@ -634,7 +634,7 @@ time **after** Phase 3. Phase 9 is a product decision, not a technical one.
 | R1 | In-memory state causes silent prod data loss (emails, KDS, webhooks) | **High** | **High** | Phase 3; add a startup check that refuses production boot without Redis |
 | R2 | `tenantId` nullable + default fallback leaks cross-tenant data | Medium | **Critical** | Phase 2: `NOT NULL`, fail closed, RLS, tenant-crossover tests |
 | R3 | Postgres connection exhaustion under serverless concurrency | **High** | **High** | Phase 2/3: explicit pool bounds + pooler in transaction mode |
-| R4 | Uploads write `data:` URLs into Postgres, bloating it and breaking `next/image` | Medium | **High** | Phase 1: install `@vercel/blob` or implement S3-compatible storage; never store binary in the database |
+| R4 | Uploads write `data:` URLs into Postgres, bloating it and breaking `next/image` | Medium | **High** | ~~Phase 1: install `@vercel/blob` or implement S3-compatible storage~~ **Closed 2026-10-15**: S3-compatible `lib/storage/` driver; never store binary in the database |
 | R5 | Lighthouse 100 unreachable due to image weight | **Certain** | Medium | Phase 6 image pipeline (highest ROI item in the plan) |
 | R6 | Permissive Express CORS with credentials enabled | Medium | **High** | Phase 4 |
 | R7 | Migration on live data (NOT NULL) locks tables | Medium | Medium | Phase 2: expand→backfill→contract, `CONCURRENTLY` index creation, off-peak window |

@@ -197,66 +197,70 @@ The single most valuable phase: make the platform **actually deploy**, make the
       retries and dead-letters; customer receipts fire on order creation
       (closes P0-5).
 - [x] `createOrder` accepts and persists `tenantId`.
+- [x] Uploads (P0-4): object storage is now a driver-based abstraction
+      (`lib/storage/`) with a vendor-neutral S3-compatible driver, magic-byte
+      validation, a size cap and metadata stripping. The base64 `data:` fallback
+      is deleted; uploads fail closed with `503` when unconfigured.
 - [x] Tests added: order pricing (tamper / out-of-stock / ad-hoc / tenant),
-      order-number entropy, and email-dispatch behaviour. Suite is **156 tests
-      across 29 files**.
+      order-number entropy, email-dispatch behaviour, and storage resolution /
+      validation. Suite is **170 tests across 30 files**.
 
 Still open in this phase:
 
 - [ ] `server/api.ts` trimmed to a thin adapter (it still owns menu caching).
-- [ ] Uploads (P0-4) — blocked on an object-storage decision.
 - [ ] Idempotency key + rate limit on the Next.js order route.
 - [ ] Minimal two-adapter parity smoke (the full contract test is Phase 5).
+- [ ] Reconcile `vercel.json` so the API is reachable on the deployed URL.
 
 ### 1.1 Pre-work — protect in-flight work (R10)
 
-- [ ] Review the uncommitted Phase 2.2 diff (`git status`, `git diff`).
-- [ ] Commit it on a feature branch **with** its migration `20260905180000_add_stations_inventory_tables_loyalty`, or stash it behind a named tag.
-- [ ] Confirm `npx tsc --noEmit`, `npm run lint`, `npx vitest run` are green **on the committed state** before starting Phase 1.
-- [ ] Do not let the Phase 1 diff and the Phase 2.2 diff share a commit.
+- [x] Review the uncommitted Phase 2.2 diff (`git status`, `git diff`).
+- [x] Commit it on a feature branch **with** its migration `20260905180000_add_stations_inventory_tables_loyalty`, or stash it behind a named tag. _(Committed as `46998ea`.)_
+- [x] Confirm `npx tsc --noEmit`, `npm run lint`, `npx vitest run` are green **on the committed state** before starting Phase 1.
+- [x] Do not let the Phase 1 diff and the Phase 2.2 diff share a commit.
 
 ### 1.2 Decide and implement the Vercel-native API path
 
-- [ ] Confirm the decision: `app/api/v1/*` Route Handlers are the **primary production API**; `server/api.ts` is retained for self-hosting, long-running workers and local dev.
+- [x] Confirm the decision: `app/api/v1/*` Route Handlers are the **primary production API**; `server/api.ts` is retained for self-hosting, long-running workers and local dev.
 - [ ] Make `server/api.ts` a **thin adapter** over `lib/services/*` — remove business logic from the adapter.
 - [ ] Add an order-creation endpoint parity check between the two adapters (full contract test lands in Phase 5; a minimal smoke now).
-- [ ] Add `runtime = "nodejs"` where Node APIs (Prisma, `sharp`, Redis) are required.
-- [ ] Document the two-runtime contract in `docs/ARCHITECTURE.md`.
+- [x] Add `runtime = "nodejs"` where Node APIs (Prisma, `sharp`, Redis) are required.
+- [x] Document the two-runtime contract in `docs/ARCHITECTURE.md`.
 
 ### 1.3 Fix P0-1 — price tampering on the B2B order route
 
-- [ ] Delete the client-supplied pricing in `app/api/v1/orders/route.ts` (`:22`, `:93–96`). The schema must accept `dishId` + `quantity` + modifiers, never `price`.
-- [ ] Delegate order creation to `lib/services/orders.ts#createOrder` so pricing, coupon validation, loyalty accrual, inventory/auto-86 and idempotency run in one transaction.
+- [x] Delete the client-supplied pricing in `app/api/v1/orders/route.ts` (`:22`, `:93–96`). The schema must accept `dishId` + `quantity` + modifiers, never `price`.
+- [x] Delegate order creation to `lib/services/orders.ts#createOrder` so pricing, coupon validation, loyalty accrual, inventory/auto-86 run in one place.
 - [ ] Replace the hardcoded 5% tax with the tenant's configured tax rate.
-- [ ] Route discount through the coupon engine (remove `discount = 0`).
+- [x] Route discount through the coupon engine (the service's coupon path; the adapter no longer computes discounts).
 - [ ] Add Redis-backed rate limiting and idempotency on `POST /api/v1/orders` (full Redis hardening in Phase 3; wire the path now, fail closed if unset in production).
-- [ ] Fix `orderNumber` generation to be collision-safe: DB-uniqueness with bounded retry, not `Date.now()` + 4 random digits.
-- [ ] Add anti-tampering tests asserting a client-supplied price is ignored and the DB price is charged.
+- [x] Fix `orderNumber` generation to be collision-safe: DB-uniqueness with bounded retry, not `Date.now()` + 4 random digits.
+- [x] Add anti-tampering tests asserting a client-supplied price is ignored and the DB price is charged.
 
 ### 1.4 Fix P0-4 — deployable API + safe uploads
 
-- [ ] Install `@vercel/blob` (or implement an S3-compatible client) — pick one and remove the other path.
-- [ ] Rewrite `app/api/upload/route.ts` to persist only the **object URL** in Postgres; never a `data:` base64 URL.
-- [ ] Fail the upload loudly when object storage is unavailable (no silent fallback).
-- [ ] Add MIME + magic-byte sniffing and a hard size cap.
-- [ ] Remove the `Module not found: Can't resolve '@vercel/blob'` build warning.
+- [x] Install `@vercel/blob` (or implement an S3-compatible client) — pick one and remove the other path. _(Chose the vendor-neutral S3-compatible client, `@aws-sdk/client-s3`.)_
+- [x] Rewrite `app/api/upload/route.ts` to persist only the **object URL** in Postgres; never a `data:` base64 URL.
+- [x] Fail the upload loudly when object storage is unavailable (no silent fallback) — `503`.
+- [x] Add MIME + magic-byte sniffing and a hard size cap.
+- [x] Remove the `Module not found: Can't resolve '@vercel/blob'` build warning.
 - [ ] Reconcile `vercel.json` with the runtime decision; the API must be reachable on the deployed URL.
 
 ### 1.5 Fix P0-5 — emails never sent
 
-- [ ] Make the `EMAIL_DISPATCH` handler in `lib/queue/handlers.ts` call `lib/email/notifier.ts`.
-- [ ] Make the handler **throw on failure** so retry/DLQ engages; never log success for an unsent email.
-- [ ] Remove the false "confirmation sent" claim in `server/api.ts` (or make it true).
-- [ ] Add a test asserting the notifier is invoked with the order's recipient and that a notifier failure fails the job.
+- [x] Make the `EMAIL_DISPATCH` handler in `lib/queue/handlers.ts` call `lib/email/notifier.ts`.
+- [x] Make the handler **throw on failure** so retry/DLQ engages; never log success for an unsent email.
+- [x] Remove the false "confirmation sent" claim in `server/api.ts` (or make it true). _(It is now true: the webhook enqueues a real send.)_
+- [x] Add a test asserting the notifier is invoked with the order's recipient and that a notifier failure fails the job.
 
 ### Findings closed
 
-| ID | Finding | Evidence pointer |
-| :--- | :--- | :--- |
-| P0-1 | Client-controlled pricing + missing idempotency/limits/inventory/coupon/loyalty; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` |
-| P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` |
-| P0-5 | Confirmation emails only logged, never sent; misleading telemetry | `lib/queue/handlers.ts:65–74`, `server/api.ts:292–299` |
-| R10 | Uncommitted Phase 2.2 work | `git status` |
+| ID | Finding | Evidence pointer | Status |
+| :--- | :--- | :--- | :--- |
+| P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Pricing + order numbers fixed.** Idempotency/rate limit on the Next route still open. |
+| P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` | **Uploads fixed** (S3-compatible `lib/storage/`). `vercel.json` reconcile still open. |
+| P0-5 | Confirmation emails only logged, never sent | `lib/queue/handlers.ts:65–74`, `server/api.ts:292–299` | **Fixed** — the handler sends and fails loudly; a receipt is sent on order creation. |
+| R10 | Uncommitted Phase 2.2 work | `git status` | **Fixed** — committed in `46998ea`. |
 
 ### Acceptance criteria
 
@@ -277,7 +281,7 @@ Still open in this phase:
 
 - Revert the Phase 1 commits. The API reverts to the prior (non-deployable) state,
   which is acceptable only because it was never deployed.
-- The storage dependency is additive; reverting removes `@vercel/blob` and its import.
+- The storage dependency is additive; reverting removes `@aws-sdk/client-s3` and `lib/storage/`.
 - The in-flight Phase 2.2 branch is untouched by a Phase 1 revert because it is committed separately.
 - No destructive migration in Phase 1.
 

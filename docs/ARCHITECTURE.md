@@ -51,10 +51,10 @@ optional Upstash Redis. **26 Prisma models.** `proxy.ts` at the repository root 
 the Next 16 replacement for `middleware.ts`.
 
 **Quality gates (measured):** `npx tsc --noEmit` clean · `npm run lint` clean ·
-`npx vitest run` = **148 tests / 27 files** · `npm run build` succeeds with
-**40 routes**. Build emits two warnings: `Module not found: Can't resolve
-'@vercel/blob'` (`app/api/upload/route.ts:65`) and `db.slow_query` —
-`Dish.findMany` at **195 ms**.
+`npx vitest run` = **170 tests / 30 files** · `npm run build` succeeds with
+**40 routes** and **no module-not-found warnings** (the `@vercel/blob` import was
+removed in Phase 1). One advisory remains: `db.slow_query` — `Dish.findMany` at
+**195 ms**.
 
 **Vocabulary**
 
@@ -979,8 +979,8 @@ The four headline defects below are **verified**. Each maps to a delivery phase
 | Defect | Evidence | Phase |
 | :--- | :--- | :--- |
 | KDS broadcast publishes a **slug** while subscribers register a **UUID** | `server/api.ts:287` (`order.tenantId \|\| "spice-saffron"`) vs `app/api/v1/realtime/kds/route.ts:40` | 2 |
-| `EMAIL_DISPATCH` handler only logs; never calls `lib/email/notifier.ts` | `lib/queue/handlers.ts:65-74` | 1 |
-| Uploads fall through to a base64 `data:` URL stored in Postgres | `app/api/upload/route.ts:63-91`; `@vercel/blob` not installed (build warning) | 1 |
+| ~~`EMAIL_DISPATCH` handler only logs; never calls `lib/email/notifier.ts`~~ **FIXED** (Phase 1) | `lib/queue/handlers.ts` | 1 |
+| ~~Uploads fall through to a base64 `data:` URL stored in Postgres~~ **FIXED** (Phase 1) — `lib/storage/` S3-compatible driver | `app/api/upload/route.ts` | 1 |
 | `PrismaPg` created with no pool bounds or statement timeout | `lib/db/prisma.ts:8` | 2/3 |
 | Idempotency key not bound to the request body, not tenant-scoped | `lib/resilience/idempotency.ts:54` | 3/4 |
 | Cache invalidation uses `KEYS` (O(N), blocking) | `lib/cache/cache-manager.ts:138` | 3 |

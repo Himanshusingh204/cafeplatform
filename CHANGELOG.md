@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is configured.
 - `createOrder` accepts and persists an explicit `tenantId`, and sends the
   customer receipt best-effort after the order is committed.
+- **Uploads now use object storage.** A new `lib/storage/` abstraction with a
+  vendor-neutral S3-compatible driver (`@aws-sdk/client-s3`) replaces the
+  Vercel-Blob → filesystem → `data:`-URL cascade. Local development uses a
+  filesystem driver under `public/uploads` (git-ignored); production requires
+  `STORAGE_*` and fails closed with `503` when unconfigured.
+- `next.config.ts` reads `STORAGE_PUBLIC_URL` at build time to authorise
+  `next/image` remote patterns and the CSP `img-src`.
+
+### Removed
+
+- The `@vercel/blob` import (never installed) and the `BLOB_READ_WRITE_TOKEN`
+  environment variable. Superseded by the storage driver above.
 
 ### Fixed
 
@@ -50,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delegates to `createOrder`, which reads the catalog price from the database and
   ignores the client value. A tampered price is overridden or the request is
   rejected — it is never trusted.
+- **Uploads are validated, not trusted.** Image bytes are identified by magic
+  number, checked against the declared type, capped at 5 MB and 8 000 px, and
+  re-encoded with `sharp` to strip EXIF/GPS metadata. Object keys are randomised
+  and path-traversal-safe. Binary is never persisted in PostgreSQL.
 
 ---
 

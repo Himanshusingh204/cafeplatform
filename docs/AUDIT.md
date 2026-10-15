@@ -202,6 +202,13 @@ persisted into the database** — inflating rows to megabytes, defeating
 production API) and install a real object store — `@vercel/blob` or an
 S3-compatible client. Never persist binary in Postgres; fail the upload instead.
 
+> **Resolved 2026-10-15.** Replaced the compound fallback with a storage
+> abstraction (`lib/storage/`) and a vendor-neutral S3-compatible driver
+> (`@aws-sdk/client-s3`). The route now validates by magic bytes, enforces a size
+> cap, re-encodes to strip metadata, and returns `503` when no store is
+> configured — the base64 path is deleted and the build warning is gone.
+> Covered by `tests/unit/storage.test.ts`.
+
 ---
 
 ### P0-5 · Order confirmation emails are never sent

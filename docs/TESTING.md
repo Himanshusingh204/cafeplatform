@@ -460,13 +460,12 @@ Each gap lists **what is missing**, **why it matters (concrete risk)**, and the
   dispatched" log line actively masks the failure.
 - **Phase:** **3**.
 
-### Gap 13 — No upload test for the `data:` URL fallback
-- **Missing:** `app/api/upload/route.ts:63-91` falls back Vercel Blob →
-  filesystem → a base64 `data:` URL; the read-only-filesystem path is untested.
-- **Risk:** on serverless the fallback writes a multi-KB base64 blob into a
-  Postgres column, inflating rows and the menu payload; the terminal error path is
-  also untested.
-- **Phase:** **3**.
+### ~~Gap 13 — No upload test for the `data:` URL fallback~~ (resolved 2026-10-15)
+- **Status:** the `data:` fallback no longer exists. `app/api/upload/route.ts` now
+  delegates to `lib/storage/`, and `tests/unit/storage.test.ts` covers driver
+  resolution, magic-byte sniffing, size caps, declared-type mismatch, path-traversal
+  neutralisation and the local driver write path. Uploads fail closed with `503`
+  when no object store is configured.
 
 ### Gap 14 — No test for money precision
 - **Missing:** totals use float `reduce` in `server/api.ts:118` and

@@ -12,7 +12,7 @@
     <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://www.postgresql.org/"><img alt="PostgreSQL 18" src="https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://nodejs.org/"><img alt="Node 20.19 or newer" src="https://img.shields.io/badge/Node-%E2%89%A520.19-339933?logo=nodedotjs&amp;logoColor=white&amp;style=for-the-badge" /></a>
-    <a href="https://vitest.dev/"><img alt="148 tests passing" src="https://img.shields.io/badge/tests-148%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
+    <a href="https://vitest.dev/"><img alt="170 tests passing" src="https://img.shields.io/badge/tests-170%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
   </p>
   <p>
     <a href="./LICENSE"><img alt="License: Proprietary (personal use only)" src="https://img.shields.io/badge/license-Proprietary%20%C2%B7%20personal%20use%20only-red?style=for-the-badge" /></a>
@@ -275,7 +275,9 @@ Everything that varies between environments is configuration, not hardcoded valu
 | `EMAIL_API_KEY` | Optional | Enables transactional email |
 | `CONTACT_NOTIFY_EMAIL` | Optional | Inbox that receives contact-form notifications |
 | `EMAIL_FROM_ADDRESS` | Optional | `From:` address for outbound email |
-| `BLOB_READ_WRITE_TOKEN` | Optional | Object storage for uploads |
+| `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | Production | S3-compatible object storage for admin uploads |
+| `STORAGE_PUBLIC_URL` | Optional | Public base URL for stored objects (also authorises `next/image` + CSP) |
+| `STORAGE_REGION`, `STORAGE_ENDPOINT`, `STORAGE_FORCE_PATH_STYLE`, `STORAGE_DRIVER` | Optional | Region / custom endpoint (R2, MinIO) / path-style flag / forced driver |
 | `RAZORPAY_*` / `STRIPE_*` | Optional | Payment gateways |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Production | Cache, rate limiting, idempotency, pub/sub |
 | `CAFE_*` | Optional | Override site identity, contact details and social links |
@@ -334,7 +336,7 @@ Quality gates run locally and in CI on every push and pull request:
 ```bash
 npm run typecheck   # TypeScript, 0 errors
 npm run lint        # ESLint, clean
-npm test            # Vitest — 148 tests across 27 files
+npm test            # Vitest — 170 tests across 30 files
 npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 ```
 
@@ -344,7 +346,7 @@ npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 | :--- | :--- |
 | `tsc --noEmit` | 0 errors |
 | ESLint | 0 warnings, 0 errors |
-| Vitest | **148 passing** across 27 files (≈57s) |
+| Vitest | **170 passing** across 30 files |
 | `next build` | Succeeds — 40 routes |
 | Security audit (CI) | Weekly `npm audit` job |
 
@@ -438,7 +440,7 @@ This project is under active development. The following are known and tracked; t
 | **Tenant isolation** | `tenantId` is nullable and resolution fails open to the default tenant. Hardening to `NOT NULL`, fail-closed resolution and RLS is Phase 2. |
 | **Order pricing** | The order endpoint currently trusts client-supplied line prices. Moving pricing authority fully server-side is Phase 1. |
 | **Transactional email** | The `EMAIL_DISPATCH` job handler only logs today; it does not yet call the notifier. Phase 1. |
-| **Uploads** | Object storage is not yet wired, so uploads fall back to an inline data URL. Phase 1 (install a real object store). |
+| **Uploads** | ✅ Fixed — object storage is a driver abstraction (`lib/storage/`) with an S3-compatible backend; uploads return `503` when unconfigured rather than writing base64 into the database. |
 | **Express API in production** | `vercel.json` deploys Next.js only; the port-4000 API exists for self-host and local dev. |
 | **Performance** | Several bundled images are ~950 KB, which caps mobile Lighthouse performance. The image pipeline and CWV budgets are Phase 6. |
 

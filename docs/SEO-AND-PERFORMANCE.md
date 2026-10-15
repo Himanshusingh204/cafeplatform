@@ -147,7 +147,7 @@ is sequenced after it.
 | G11 | `public/images/brand/` is **empty**; inline SVG logo only in `components/brand/logo.tsx` | No crawlable, cacheable brand image for OG/schema | Low |
 | G12 | No JSON-LD for `Menu`, `BreadcrumbList`, `FAQPage`, `Product` | Missed rich-result eligibility | Medium |
 | G13 | `APP_URL` is a single hardcoded base; multi-tenant custom domains have no per-host canonical story | Multi-tenant canonical hazard | High |
-| G14 | `@vercel/blob` not installed; upload route falls back to base64 `data:` URLs | Blooms DB rows and breaks `next/image` for uploads (see [MASTER_PLAN §16 R4](./MASTER_PLAN.md)) | High (tracked in Phase 1) |
+| G14 | ~~`@vercel/blob` not installed; upload route falls back to base64 `data:` URLs~~ **Resolved 2026-10-15** (`lib/storage/` S3-compatible driver) | Uploads no longer bloat the DB (see [MASTER_PLAN §16 R4](./MASTER_PLAN.md)) | ✅ Closed (Phase 1) |
 | G15 | No enforcement: no Lighthouse CI, no budget assertion | Regressions land silently | Medium |
 
 ### 2.3 Rendering & caching as built (from build output)
@@ -945,7 +945,7 @@ Ordered by impact ÷ effort. Phase = delivery phase from
 | 17 | RUM web-vitals collector + endpoint | Medium | M | 6/7 | Phase 4 rate limit |
 | 18 | Multi-tenant host resolution for `metadataBase`/canonical/sitemap/robots | **High** | L | 9 | tenant routing |
 | 19 | Populate `public/images/brand/`; static brand OG fallback | Low | S | 6 | — |
-| 20 | `@vercel/blob` (or S3) so uploads stop writing `data:` URLs | **High** | M | 1 | — |
+| 20 | ~~`@vercel/blob` (or S3) so uploads stop writing `data:` URLs~~ **Done 2026-10-15** (S3-compatible driver) | ~~High~~ Closed | M | 1 | — |
 
 **Sequencing:** items 1–4 (images, the headline) land first and alone if needed,
 because they move LCP the most. 5–14 complete the SEO surface. 15–16 lock it in

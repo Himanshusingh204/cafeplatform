@@ -54,7 +54,7 @@ development.
 | Database | PostgreSQL 18 (CI pins `postgres:16-alpine`) | 5432 | Managed Postgres | System of record |
 | Cache / rate limit / idempotency / pub-sub | Upstash Redis (REST) | 443 (HTTPS REST) | Upstash | **Redis is a hard production dependency** — in-memory fallbacks are dev/test only |
 | Background jobs + scheduled work | DB-backed outbox + worker + Vercel Cron | — | Worker host + Vercel Cron | **[PROPOSED]** durable outbox to replace the current in-process queue |
-| Object storage | `@vercel/blob` / S3-compatible | 443 | Not currently installed | **Blocker** — see [§1.4](#14-known-production-blockers) |
+| Object storage | S3-compatible (AWS S3 / Cloudflare R2 / MinIO / B2) | 443 | `STORAGE_*`; filesystem in dev | **Resolved** — `lib/storage/` driver; required in production |
 
 ### 1.2 API surfaces
 
@@ -86,11 +86,11 @@ These are confirmed defects, not hypotheticals. Treat them as runbook warnings.
 
 | # | Blocker | Operational impact | Reference |
 | :-- | :--- | :--- | :--- |
-| B1 | `@vercel/blob` is **referenced but not installed** (`package.json` has no such dependency; `node_modules/@vercel/blob` is absent). `next build` warns `Module not found: Can't resolve '@vercel/blob'`. | Uploads fall through to a base64 `data:` URL **stored in Postgres**, inflating rows and defeating `next/image`. | `app/api/upload/route.ts:63–91`, [§17.2](#172-uploads-vanish-after-a-deploy) |
+| B1 | ~~`@vercel/blob` referenced but not installed~~ **Resolved 2026-10-15**: replaced by a storage abstraction (`lib/storage/`) with a vendor-neutral S3-compatible driver. The base64 `data:` fallback is deleted. | None. In production set `STORAGE_BUCKET` + `STORAGE_ACCESS_KEY` + `STORAGE_SECRET_KEY`; uploads then return `503` when unconfigured rather than corrupting the database. | `lib/storage/index.ts`, `app/api/upload/route.ts`, [§17.2](#172-uploads-return-503-in-production) |
 | B2 | `GET /api/v1/system/metrics` exists **only on Express**. | No queue/memory metrics on the primary Vercel deployment. | `server/api.ts:306` |
 | B3 | Queue, event bus, rate limiter and cache are **in-process** (`new Map()`, `EventEmitter`, `setInterval`). | Multi-instance/serverless behaviour diverges: KDS tickets are invisible across instances, jobs are lost on deploy, rate limits multiply by instance count, cache hit rate collapses. | `lib/queue/job-queue.ts`, `lib/realtime/bus.ts`, `lib/rate-limit/limiter.ts`, `lib/cache/cache-manager.ts` |
 | B4 | `server/api.ts` is **not deployed by `vercel.json`** and is **untested** by the suite. | The documented port-4000 API is unreachable in production on Vercel. | `vercel.json`, [`./AUDIT.md`](./AUDIT.md) P2-9 |
-| B5 | Working tree contains **uncommitted Phase 2.2 work** and an **unapplied migration** `20260905180000_add_stations_inventory_tables_loyalty`. | A deploy can ship code whose schema is not migrated, or a migration whose code is missing. Reconcile before deploying. | [`./AUDIT.md`](./AUDIT.md) §9 |
+| B5 | ~~Working tree contains uncommitted work~~ **Resolved 2026-10-15**: committed in `46998ea` (features) and `f233136` (docs). | None. Migration `20260905180000_add_stations_inventory_tables_loyalty` is tracked and applied by the deploy pipeline. | [`./ROADMAP.md`](./ROADMAP.md) §1.4 |
 
 ### 1.5 Who to contact / escalation
 
@@ -272,7 +272,7 @@ port 4000 in production — the Express API/worker/SSE must be hosted elsewhere
 | :--- | :--- | :--- |
 | `server/api.ts` (Express, port 4000) | Express-only routes (`/api/v1/coupons/validate`, `/api/v1/system/metrics`, the Express SSE endpoint) are absent | Target B/C worker host |
 | Long-running worker / `setInterval` loop | Serverless instances are frozen between requests; the current `JobQueue` would never drain reliably | Target B/C worker host + Vercel Cron **[PROPOSED]** |
-| Persistent filesystem | Local upload writes fail on the read-only serverless filesystem, falling through to a `data:` URL (B1) | Install `@vercel/blob` or an S3 client |
+| Persistent filesystem | Local upload writes fail on the read-only serverless filesystem. **Resolved**: there is no base64 fallback — production uses an object store (B1). | Configure `STORAGE_*`; uploads return `503` when unconfigured |
 
 ### 4.3 Post-deploy checklist (Target A)
 
@@ -465,10 +465,14 @@ immediately on any suspected exposure.
 | `EMAIL_API_KEY` | Optional | Server-only | Resend API key for contact/reservation/receipt email | `re_...` | **90 days** | **See discrepancy below.** |
 | `CONTACT_NOTIFY_EMAIL` | Optional | Server-only | Recipient for contact-form notifications | `owner@domain` | N/A | Required together with `EMAIL_API_KEY` for contact email to send. |
 | `EMAIL_FROM_ADDRESS` | Optional | Server-only | Verified sender | `Spice & Saffron <no-reply@domain>` | N/A | Defaults to the Resend onboarding sender until a domain is verified. |
-| `STORAGE_BUCKET` | Optional | Server-only | Object storage bucket name | `cafe-uploads` | N/A | S3-compatible config; not wired to a live client today. |
-| `STORAGE_ACCESS_KEY` | Optional | Server-only | Object storage access key | opaque | **90 days** | Least-privilege bucket policy. |
-| `STORAGE_SECRET_KEY` | Optional | Server-only | Object storage secret | opaque | **90 days** | Rotate with the access key. |
-| `BLOB_READ_WRITE_TOKEN` | Optional | Server-only | Enables the Vercel Blob upload path | `vercel_blob_rw_...` | **90 days** | **`@vercel/blob` is not installed**, so this path currently no-ops and uploads fall through (B1). |
+| `STORAGE_DRIVER` | Optional | Server-only | Force a driver: `s3` or `local` | `s3` | N/A | Left blank, S3 is used when a bucket is set; otherwise `local` outside production. |
+| `STORAGE_BUCKET` | **Required in prod** | Server-only | Object storage bucket name | `cafe-uploads` | N/A | With the two keys below, activates the S3-compatible driver. |
+| `STORAGE_REGION` | Optional | Server-only | Bucket region | `ap-south-1`, or `auto` for R2 | N/A | Defaults to `auto`. |
+| `STORAGE_ENDPOINT` | Optional | Server-only | Custom S3 endpoint | `https://<acct>.r2.cloudflarestorage.com` | N/A | Omit for AWS S3. Set for R2/MinIO/B2. |
+| `STORAGE_ACCESS_KEY` | **Required in prod** | Server-only | Object storage access key | opaque | **90 days** | Least-privilege bucket policy. |
+| `STORAGE_SECRET_KEY` | **Required in prod** | Server-only | Object storage secret | opaque | **90 days** | Rotate with the access key. |
+| `STORAGE_PUBLIC_URL` | **Recommended in prod** | Server-only | Public base URL objects are served from | `https://cdn.domain` | N/A | Read at build time to authorise `next/image` and the CSP `img-src`. |
+| `STORAGE_FORCE_PATH_STYLE` | Optional | Server-only | `true` for MinIO | `true` | N/A | Left blank for AWS S3 and R2. |
 | `RAZORPAY_KEY_ID` | Optional | Server-only | Razorpay key id | `rzp_live_...` / `rzp_test_...` | On gateway rotation | Live vs test inferred from prefix. Never expose client-side without a server-confirmed order. |
 | `RAZORPAY_KEY_SECRET` | Optional | Server-only | Razorpay API + client signature secret | opaque | **180 days** | Also used as a webhook-secret fallback. Highest-sensitivity payment credential. |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional | Server-only | HMAC secret for webhook signatures | opaque | **180 days** | If unset, verification falls back to `RAZORPAY_KEY_SECRET`. Rotate in lockstep with the dashboard. |
@@ -1218,28 +1222,28 @@ configured today (`lib/db/prisma.ts` has no bounds).
 
 ## 17. Troubleshooting FAQ
 
-### 17.1 `next build` fails on `@vercel/blob`
+### 17.1 ~~`next build` fails on `@vercel/blob`~~ (resolved 2026-10-15)
 
-**Symptom:** build warning/failure `Module not found: Can't resolve '@vercel/blob'`
-(`app/api/upload/route.ts:65`); `@vercel/blob` is not in `package.json`.
+The upload handler no longer references `@vercel/blob`, so the build warning is gone. If you now
+see a storage-related build error, it is a malformed `STORAGE_PUBLIC_URL` — `next.config.ts`
+parses it to authorise `next/image` and the CSP. Fix the URL or unset it (remote images are then
+simply not optimised).
 
-**Cause:** the upload handler dynamically imports `@vercel/blob` when `BLOB_READ_WRITE_TOKEN`
-is set, but the package is not installed (B1).
+### 17.2 Uploads return 503 in production
 
-**Fix (choose one):**
-1. Install a real store — `npm install @vercel/blob` (and commit the lockfile) — or replace the
-   upload path with an S3-compatible client.
-2. Until then, unset `BLOB_READ_WRITE_TOKEN` so the handler skips the missing import. Note the
-   consequences below.
+**Cause:** no object store is configured, so `resolveStorage()` fails closed. This is
+intentional — the previous behaviour (writing base64 `data:` URLs into Postgres) is gone.
 
-### 17.2 Uploads vanish after a deploy
+**Fix:** set `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` and
+`STORAGE_PUBLIC_URL`. In development, uploads use the local filesystem under `public/uploads`
+(git-ignored) and are lost on redeploy — that is expected outside production.
 
-**Cause:** with no object store, the handler tries `public/uploads/...` (read-only on Vercel)
-and finally writes a base64 `data:` URL into Postgres. Files written to a local filesystem are
-lost on redeploy; `data:` URLs bloat rows and break `next/image`.
+**If you have legacy `data:` URLs**, find and migrate the bytes out:
 
-**Fix:** install `@vercel/blob` or an S3 client and store only a URL in the database. Never
-persist binary in Postgres. Audit existing `data:` URLs and migrate them out.
+```sql
+SELECT id, name FROM "Dish" WHERE image LIKE 'data:%';
+SELECT id, url  FROM "GalleryImage" WHERE url LIKE 'data:%';
+```
 
 ### 17.3 SSE works locally but not in production
 
