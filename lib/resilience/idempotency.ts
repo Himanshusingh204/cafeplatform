@@ -8,6 +8,12 @@ export interface StoredResponse {
   headers?: Record<string, string>;
   body: unknown;
   timestamp: string;
+  /**
+   * Server-side bookkeeping that must never reach the client — for example the
+   * payload fingerprint used to detect a key being reused for a different body.
+   * Replay paths send `headers` and `body` only, so `meta` stays internal.
+   */
+  meta?: Record<string, string>;
 }
 
 interface IdempotencyRecord {

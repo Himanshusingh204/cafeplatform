@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  acquireIdempotency,
+  applyRateLimit,
+  completeIdempotency,
+  hashPayload,
+  idempotencyScope,
+  readIdempotencyKey,
+  releaseIdempotency,
+  requiresDistributedBackend,
+} from "@/lib/api/request-guards";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
 import { db } from "@/lib/db/prisma";
 import { createOrder, OrderValidationError } from "@/lib/services/orders";
@@ -7,6 +17,10 @@ import type { OrderStatus } from "@/lib/generated/prisma/enums";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+/** Per-credential budget for order ingestion: 60 orders per rolling minute. */
+const ORDER_RATE_LIMIT_MAX = 60;
+const ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
 
 const orderItemSchema = z.object({
   dishId: z.string().uuid().optional(),
@@ -86,11 +100,25 @@ export async function GET(request: Request) {
  * the shared `createOrder` service so this adapter holds no business logic and
  * cannot diverge from the Express adapter or the customer checkout flow.
  * Client-supplied prices are never trusted for catalog dishes.
+ *
+ * Request guards run in a fixed order, cheapest and most decisive first:
+ * authenticate → fail closed without a shared backend → parse → validate →
+ * rate limit → deduplicate. The route is retry-safe for any caller that sends
+ * an `Idempotency-Key`; without one it behaves exactly as before.
  */
 export async function POST(request: Request) {
   const auth = await verifyS2SRequest(request, "orders:write");
   if (!auth.success) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  // Duplicate order acceptance is a money bug. In production we refuse to serve
+  // the money path on per-instance memory, which cannot dedupe across instances.
+  if (requiresDistributedBackend()) {
+    return NextResponse.json(
+      { error: "Order ingestion is unavailable: shared rate-limit and idempotency storage is not configured." },
+      { status: 503 }
+    );
   }
 
   let body: unknown;
@@ -108,17 +136,79 @@ export async function POST(request: Request) {
     );
   }
 
+  const limit = await applyRateLimit(
+    `orders:create:${auth.context.id}`,
+    ORDER_RATE_LIMIT_MAX,
+    ORDER_RATE_LIMIT_WINDOW_MS
+  );
+  if (!limit.success) {
+    return NextResponse.json(
+      { error: "Too many order requests. Please retry shortly." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
+        },
+      }
+    );
+  }
+
+  // The key names one operation for one tenant on this endpoint. The payload
+  // fingerprint is recorded alongside it so a key replayed with a *different*
+  // body is rejected rather than answered with an unrelated order.
+  const idempotencyKey = readIdempotencyKey(request);
+  const payloadHash = hashPayload(parsed.data);
+  const scope = idempotencyKey
+    ? idempotencyScope(auth.context.tenantId, "orders.create", idempotencyKey)
+    : null;
+
+  if (scope) {
+    const acquisition = await acquireIdempotency(scope, payloadHash);
+
+    if (acquisition.status === "replay") {
+      return NextResponse.json(acquisition.response.body, {
+        status: acquisition.response.statusCode,
+        headers: { "Idempotent-Replay": "true" },
+      });
+    }
+
+    if (acquisition.status === "in_flight") {
+      return NextResponse.json(
+        { error: "A request with this Idempotency-Key is already in flight." },
+        { status: 409, headers: { "Retry-After": "1" } }
+      );
+    }
+
+    if (acquisition.status === "conflict") {
+      return NextResponse.json(
+        {
+          error:
+            "This Idempotency-Key was already used for a different request body. Use a new key for a new order.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   try {
     const order = await createOrder({
       ...parsed.data,
       tenantId: auth.context.tenantId,
     });
 
-    return NextResponse.json(
-      { message: "Order successfully ingested", order },
-      { status: 201 }
-    );
+    const responseBody = { message: "Order successfully ingested", order };
+    if (scope) {
+      await completeIdempotency(scope, 201, responseBody, payloadHash);
+    }
+
+    return NextResponse.json(responseBody, { status: 201 });
   } catch (error) {
+    // Free the key so a genuine retry after a transient failure is not blocked
+    // until the record expires.
+    if (scope) {
+      await releaseIdempotency(scope);
+    }
+
     if (error instanceof OrderValidationError) {
       return NextResponse.json({ error: error.message }, { status: 422 });
     }

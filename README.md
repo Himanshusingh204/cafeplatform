@@ -12,7 +12,7 @@
     <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://www.postgresql.org/"><img alt="PostgreSQL 18" src="https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://nodejs.org/"><img alt="Node 20.19 or newer" src="https://img.shields.io/badge/Node-%E2%89%A520.19-339933?logo=nodedotjs&amp;logoColor=white&amp;style=for-the-badge" /></a>
-    <a href="https://vitest.dev/"><img alt="170 tests passing" src="https://img.shields.io/badge/tests-170%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
+    <a href="https://vitest.dev/"><img alt="192 tests passing" src="https://img.shields.io/badge/tests-192%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
   </p>
   <p>
     <a href="./LICENSE"><img alt="License: Proprietary (personal use only)" src="https://img.shields.io/badge/license-Proprietary%20%C2%B7%20personal%20use%20only-red?style=for-the-badge" /></a>
@@ -327,6 +327,13 @@ Route Handlers under `app/api/v1/*` are the production API. The Express service 
 
 S2S requests authenticate with `Authorization: Bearer sp_live_...` and require the appropriate scope (for example `orders:write`).
 
+Order ingestion is safe to retry. Send an `Idempotency-Key` header and a repeated
+request returns the original response instead of booking a second order; reusing
+the same key for a different body returns `409`. Requests are limited to 60 per
+rolling minute per API key, and the route refuses to serve in production unless a
+shared Redis backend (`UPSTASH_*`) is configured, because per-instance memory
+cannot deduplicate across instances.
+
 ---
 
 ## Testing & Quality
@@ -336,7 +343,7 @@ Quality gates run locally and in CI on every push and pull request:
 ```bash
 npm run typecheck   # TypeScript, 0 errors
 npm run lint        # ESLint, clean
-npm test            # Vitest — 170 tests across 30 files
+npm test            # Vitest — 192 tests across 31 files
 npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 ```
 
@@ -346,7 +353,7 @@ npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 | :--- | :--- |
 | `tsc --noEmit` | 0 errors |
 | ESLint | 0 warnings, 0 errors |
-| Vitest | **170 passing** across 30 files |
+| Vitest | **192 passing** across 31 files |
 | `next build` | Succeeds — 40 routes |
 | Security audit (CI) | Weekly `npm audit` job |
 

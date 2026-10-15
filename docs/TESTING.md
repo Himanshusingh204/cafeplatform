@@ -114,6 +114,7 @@ serial, **~57 s** wall-clock. No coverage instrumentation is configured.
 | `payments.test.ts` | Razorpay sandbox order + paise; signature accept/reject/missing-secret; webhook HMAC. |
 | `permissions.test.ts` | `hasPermission` for SUPER_ADMIN / ADMIN / EDITOR. |
 | `queue.test.ts` | `JobQueue`: register/process, DLQ after max retries, manual retry. |
+| `request-guards.test.ts` | `Idempotency-Key` parsing (canonical/alt spelling, blank, over-long), payload fingerprint stability and divergence, backend detection, and the order-route idempotency contract: replay, tenant isolation, `409` on a key reused for a different body, `409` in-flight, release-after-failure, and no fingerprint leakage into replayed headers. |
 | `request-utils.test.ts` | `hashIp`: 40-hex, stability, per-IP divergence, IPv6. |
 | `reservations.test.ts` | Reservation reference-code generation (`RES-`). |
 | `reviews.test.ts` | Rating clamping to 1–5. |
@@ -427,6 +428,9 @@ Each gap lists **what is missing**, **why it matters (concrete risk)**, and the
 - **Risk:** idempotency exists to survive the simultaneous-arrival race; a
   single-threaded replay test cannot prove the lock works, so a double-charge
   could ship.
+- **Partly covered in Phase 1:** `tests/unit/request-guards.test.ts` asserts the
+  in-flight/duplicate/replay/conflict contract that `POST /api/v1/orders` relies
+  on. The end-to-end parallel-burst test still needs a shared backend.
 - **Phase:** **3** (distributed idempotency); test in **5**.
 
 ### Gap 9 — No tenant-isolation / cross-tenant tests

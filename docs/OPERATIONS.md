@@ -460,7 +460,7 @@ immediately on any suspected exposure.
 | `APP_URL` | **Required** | Server-only | Canonical URL; CORS/CSRF origin; webhook base | `https://your-domain.com` | N/A | Must exactly match the served origin or CSRF checks fail. |
 | `API_PORT` | Optional | Server-only | Express listen port | `4000` | N/A | Default 4000. Not used by Vercel deploys. |
 | `NEXT_PUBLIC_API_URL` | Optional | **Public** | Browser-facing API base for the standalone API | `http://localhost:4000` | N/A | **Only** public variable. Must never hold a secret. |
-| `UPSTASH_REDIS_REST_URL` | **Required in prod** | Server-only | Redis REST endpoint (cache/rate-limit/idempotency/pub-sub) | `https://xxx.upstash.io` | On project change | Without it the app silently falls back to memory in prod (defect). |
+| `UPSTASH_REDIS_REST_URL` | **Required in prod** | Server-only | Redis REST endpoint (cache/rate-limit/idempotency/pub-sub) | `https://xxx.upstash.io` | On project change | Without it the app falls back to memory; order ingestion returns `503` in production rather than risk duplicate orders. |
 | `UPSTASH_REDIS_REST_TOKEN` | **Required in prod** | Server-only | Redis REST auth token | opaque string | **90 days** | Full data access to the cache; treat as credential. |
 | `EMAIL_API_KEY` | Optional | Server-only | Resend API key for contact/reservation/receipt email | `re_...` | **90 days** | **See discrepancy below.** |
 | `CONTACT_NOTIFY_EMAIL` | Optional | Server-only | Recipient for contact-form notifications | `owner@domain` | N/A | Required together with `EMAIL_API_KEY` for contact email to send. |
@@ -1261,7 +1261,9 @@ SELECT id, url  FROM "GalleryImage" WHERE url LIKE 'data:%';
 
 **Checklist:**
 - Missing/invalid `DATABASE_URL` or `AUTH_SECRET` at runtime.
-- `UPSTASH_REDIS_REST_URL`/`_TOKEN` absent → silent memory fallback (works, but state diverges).
+- `UPSTASH_REDIS_REST_URL`/`_TOKEN` absent → memory fallback (works, but state
+  diverges). Order ingestion is the exception: it returns `503` in production so
+  duplicates cannot be accepted.
 - `NODE_ENV=production` enables stricter webhook signature verification; a missing
   `RAZORPAY_WEBHOOK_SECRET` means valid-looking requests are rejected.
 - Read-only filesystem breaks local upload writes.

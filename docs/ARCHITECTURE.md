@@ -51,7 +51,7 @@ optional Upstash Redis. **26 Prisma models.** `proxy.ts` at the repository root 
 the Next 16 replacement for `middleware.ts`.
 
 **Quality gates (measured):** `npx tsc --noEmit` clean · `npm run lint` clean ·
-`npx vitest run` = **170 tests / 30 files** · `npm run build` succeeds with
+`npx vitest run` = **192 tests / 31 files** · `npm run build` succeeds with
 **40 routes** and **no module-not-found warnings** (the `@vercel/blob` import was
 removed in Phase 1). One advisory remains: `db.slow_query` — `Dish.findMany` at
 **195 ms**.

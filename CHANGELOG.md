@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/` engineering documentation set: master plan, architecture, database and
   indexing strategy, audit report, roadmap, operations runbook, testing
   strategy and SEO/performance plan.
+- `lib/api/request-guards.ts` — reusable Route Handler guards: idempotency-key
+  parsing, payload fingerprinting, tenant+operation key namespacing, distributed
+  backend detection and the acquire/complete/release wrappers over
+  `globalIdempotency` and `rateLimit`.
 - Copyright and licensing notices across the project.
 
 ### Changed
@@ -44,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `STORAGE_*` and fails closed with `503` when unconfigured.
 - `next.config.ts` reads `STORAGE_PUBLIC_URL` at build time to authorise
   `next/image` remote patterns and the CSP `img-src`.
+- **`POST /api/v1/orders` is now retry-safe and rate limited.** A caller that
+  sends `Idempotency-Key` gets exactly-once semantics: a repeated key returns the
+  original `201` body, a concurrent duplicate returns `409`, and reusing a key
+  for a different body returns `409` instead of booking a second order. Requests
+  are throttled per API key at 60 per rolling minute (`429` + `Retry-After`).
+  Because per-instance memory cannot deduplicate across serverless instances, the
+  route returns `503` in production when no shared backend (`UPSTASH_*`) is
+  configured rather than silently accepting duplicates.
+- `server/middleware/idempotency.ts` stored responses may now carry an internal
+  `meta` map (`lib/resilience/idempotency.ts`). It is never replayed to clients;
+  it records the payload fingerprint used for conflict detection.
+- Express CORS now permits the `Idempotency-Key` request header.
+- The full test suite now stands at **192 tests across 31 files**.
 
 ### Removed
 
@@ -66,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   number, checked against the declared type, capped at 5 MB and 8 000 px, and
   re-encoded with `sharp` to strip EXIF/GPS metadata. Object keys are randomised
   and path-traversal-safe. Binary is never persisted in PostgreSQL.
+- **Duplicate orders are rejected, not merged.** Order ingestion fails closed
+  when the idempotency/rate-limit backend is unavailable in production, treats an
+  `Idempotency-Key` as bound to one tenant, one endpoint and one request body,
+  and never replays one tenant's response to another tenant's key.
 
 ---
 

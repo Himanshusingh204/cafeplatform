@@ -82,15 +82,18 @@ has **no order-creation endpoint at all**, so there is nothing to compare agains
 loyalty accrual; a poisoned kitchen ticket.
 
 **Additional defects in the same handler:**
-- No idempotency — a retried `POST` creates a duplicate order.
-- No rate limiting.
-- No inventory / auto-86 check.
+- ~~No idempotency — a retried `POST` creates a duplicate order.~~ **Fixed in Phase 1** — the route now deduplicates on `Idempotency-Key` scoped by tenant and endpoint, and rejects a reused key with a different body (`409`).
+- ~~No rate limiting.~~ **Fixed in Phase 1** — 60 requests per rolling minute per API key, `429` with `Retry-After`; the route refuses to run in production without a shared backend.
+- No inventory / auto-86 check. **Fixed** — delegated to `createOrder`.
 - Tax hardcoded at 5 % (`:94`), discount hardcoded to 0 (`:95`) — ignores the
-  coupon engine entirely.
-- No loyalty accrual, despite `Order.loyaltyPointsEarned` existing.
+  coupon engine entirely. **Discount fixed** (coupon engine); the hardcoded tax
+  remains as **P1-7** (Phase 2).
+- No loyalty accrual, despite `Order.loyaltyPointsEarned` existing. **Fixed** — delegated to `createOrder`.
 - `orderNumber` uses `Date.now()` + a 4-digit random (`:98–99`): only **9 000**
   distinct values per millisecond against a `@unique` column — collides under
   burst, and a retry after a unique violation fails instead of retrying.
+  **Fixed** — Crockford-base32 `ORD-YYMMDD-XXXXXX` with a bounded retry on the
+  unique violation.
 
 **Fix:** delete the adapter's pricing entirely; delegate to
 `lib/services/orders.ts` (`createOrder`) so pricing, coupons, loyalty,
@@ -117,7 +120,7 @@ serverless deployment:
 | :--- | :--- |
 | Event bus | A kitchen ticket raised by instance A is **invisible** to an SSE client on instance B. The KDS silently drops tickets. |
 | Job queue | `setInterval` never runs reliably in a frozen lambda; jobs are **lost on every deploy**. Emails and outbound webhooks vanish. |
-| Rate limiter | Limits multiply by the instance count — effectively no protection. |
+| Rate limiter | Limits multiply by the instance count — effectively no protection. The order-ingestion route now **refuses to serve** in production without a shared backend, so the failure is loud there; other routes still degrade silently (Phase 3). |
 | Cache | Hit rate collapses to ~1/N and instances serve divergent stale data. |
 
 **Already observable today:** the two runtimes (`server/api.ts` and
@@ -252,8 +255,9 @@ never sent.
 ### P1-1 · Permissive CORS with credentials on the standalone API
 `server/api.ts:29–42` — the origin callback calls `callback(null, true)` on
 **both** branches, so the allowlist is decorative while
-`credentials: true` is set. `allowedHeaders` also omits `Idempotency-Key`,
-which the middleware expects. **Fix:** Phase 4.
+`credentials: true` is set. ~~`allowedHeaders` also omits `Idempotency-Key`,
+which the middleware expects.~~ **Fixed in Phase 1** — the header is now
+allowed. **Remaining fix:** the open origin callback, Phase 4.
 
 ### P1-2 · No connection-pool bounds; serverless will exhaust Postgres
 `lib/db/prisma.ts:8` — `new PrismaPg({ connectionString })` with no `max`, no
@@ -269,7 +273,13 @@ better, versioned key prefixes. Phase 3.
 ### P1-4 · Idempotency key is not bound to the request payload
 `lib/resilience/idempotency.ts:54` — `acquire(key)`. Reusing a key with a
 *different* body replays the first response instead of returning `409`. Also the
-key is not scoped per tenant or per endpoint. **Fix:** Phase 3/4.
+key is not scoped per tenant or per endpoint. **Partly fixed in Phase 1** for
+`POST /api/v1/orders`: `lib/api/request-guards.ts` namespaces the key as
+`tenantId:orders.create:<key>`, records a payload fingerprint in the stored
+record's internal `meta`, and returns `409` on a mismatch. The Express
+`idempotencyMiddleware` still keys on the raw header alone, so the adapters
+disagree until the Phase 1 parity work lands. **Remaining fix:** Phase 3 (persist
+the key so replay survives a cache flush) and Phase 1 (align Express).
 
 ### P1-5 · `lastUsedAt` write on every authenticated S2S request
 `lib/auth/s2s.ts:117–120` — an unthrottled `UPDATE` on the auth hot path,

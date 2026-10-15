@@ -202,13 +202,23 @@ The single most valuable phase: make the platform **actually deploy**, make the
       validation, a size cap and metadata stripping. The base64 `data:` fallback
       is deleted; uploads fail closed with `503` when unconfigured.
 - [x] Tests added: order pricing (tamper / out-of-stock / ad-hoc / tenant),
-      order-number entropy, email-dispatch behaviour, and storage resolution /
-      validation. Suite is **170 tests across 30 files**.
+      order-number entropy, email-dispatch behaviour, storage resolution /
+      validation, and request-guard units. Suite is **192 tests across 31 files**.
+- [x] Idempotency key + rate limit on the Next.js order route. A new
+      `lib/api/request-guards.ts` provides header parsing, payload hashing and
+      the acquire/complete/release wrappers, so the route stays declarative.
+      `POST /api/v1/orders` now runs auth → fail-closed backend check → parse →
+      validate → rate limit (`orders:create:<apiKeyId>`, 60/60 s, `429` +
+      `Retry-After`) → dedupe. The idempotency scope is
+      `tenantId:orders.create:<key>` and the request body is fingerprinted
+      alongside it, so a replayed key returns the original order while a key
+      reused for a *different* body is rejected with `409` — a mutated retry can
+      never book a second order, and a concurrent duplicate gets `409` instead
+      of a second row.
 
 Still open in this phase:
 
 - [ ] `server/api.ts` trimmed to a thin adapter (it still owns menu caching).
-- [ ] Idempotency key + rate limit on the Next.js order route.
 - [ ] Minimal two-adapter parity smoke (the full contract test is Phase 5).
 - [ ] Reconcile `vercel.json` so the API is reachable on the deployed URL.
 
@@ -233,7 +243,7 @@ Still open in this phase:
 - [x] Delegate order creation to `lib/services/orders.ts#createOrder` so pricing, coupon validation, loyalty accrual, inventory/auto-86 run in one place.
 - [ ] Replace the hardcoded 5% tax with the tenant's configured tax rate.
 - [x] Route discount through the coupon engine (the service's coupon path; the adapter no longer computes discounts).
-- [ ] Add Redis-backed rate limiting and idempotency on `POST /api/v1/orders` (full Redis hardening in Phase 3; wire the path now, fail closed if unset in production).
+- [x] Add Redis-backed rate limiting and idempotency on `POST /api/v1/orders`. Wired via `lib/api/request-guards.ts`: 60 requests / 60 s per API key, `409` on a concurrent duplicate, `503` when a production deployment has no shared backend. Phase 3 adds the boot-time assertion and removes the silent in-memory fallback.
 - [x] Fix `orderNumber` generation to be collision-safe: DB-uniqueness with bounded retry, not `Date.now()` + 4 random digits.
 - [x] Add anti-tampering tests asserting a client-supplied price is ignored and the DB price is charged.
 
@@ -257,7 +267,7 @@ Still open in this phase:
 
 | ID | Finding | Evidence pointer | Status |
 | :--- | :--- | :--- | :--- |
-| P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Pricing + order numbers fixed.** Idempotency/rate limit on the Next route still open. |
+| P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Pricing, order numbers, idempotency and rate limiting fixed.** The hardcoded 5% tax is tracked as P1-7 (Phase 2). |
 | P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` | **Uploads fixed** (S3-compatible `lib/storage/`). `vercel.json` reconcile still open. |
 | P0-5 | Confirmation emails only logged, never sent | `lib/queue/handlers.ts:65–74`, `server/api.ts:292–299` | **Fixed** — the handler sends and fails loudly; a receipt is sent on order creation. |
 | R10 | Uncommitted Phase 2.2 work | `git status` | **Fixed** — committed in `46998ea`. |
@@ -403,7 +413,7 @@ becomes a **durable, DB-backed outbox** drained by a worker + Vercel Cron.
 ### 3.3 Fix cache invalidation & idempotency (P1-3, P1-4)
 
 - [ ] Replace the blocking `KEYS prefix*` in `lib/cache/cache-manager.ts:138` with `SCAN` cursors or versioned key prefixes.
-- [ ] Bind the idempotency key to `(tenantId, endpoint, payload hash)`; a reused key with a different body returns `409` instead of replaying.
+- [ ] Bind the idempotency key to `(tenantId, endpoint, payload hash)`; a reused key with a different body returns `409` instead of replaying. _(Implemented for `POST /api/v1/orders` in Phase 1 — `lib/api/request-guards.ts`. The Express `idempotencyMiddleware` still keys on the raw header alone; extending it to the same `(tenant, endpoint, payload)` scope is part of the Phase 1 two-adapter parity work.)_
 - [ ] Persist the idempotency key so replay safety survives a cache flush.
 
 ### 3.4 Real metrics & correct fan-out (P2-7, P2-8)
