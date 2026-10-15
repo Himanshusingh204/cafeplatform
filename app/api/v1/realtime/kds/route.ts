@@ -6,6 +6,19 @@ import { subscribeToTenantEvents, RealtimeEventPayload } from "@/lib/realtime/bu
 export const dynamic = "force-dynamic";
 
 /**
+ * The kitchen stream is long-lived by design, so the duration budget is stated
+ * explicitly rather than inherited silently. 300 s is both the platform default
+ * and the maximum on Hobby; Pro and Enterprise may raise it to 800 s. See
+ * `config/limits.ts` (`sse`) for the shared budget.
+ *
+ * Consequence to keep in mind: whatever the cap, the stream is eventually cut,
+ * and this handler sends no `id:` field, so a reconnecting `EventSource` cannot
+ * resume — tickets raised during the gap are not replayed. Durable fan-out and
+ * replay arrive with the Redis-backed bus (roadmap Phase 3).
+ */
+export const maxDuration = 300;
+
+/**
  * GET /api/v1/realtime/kds
  * Bi-directional ready Real-Time SSE Stream for Kitchen Display Systems (KDS)
  * and live restaurant dispatch monitors.

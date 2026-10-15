@@ -15,10 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/` engineering documentation set: master plan, architecture, database and
   indexing strategy, audit report, roadmap, operations runbook, testing
   strategy and SEO/performance plan.
+- `docs/plans/phase-1-completion.md` — the reviewable execution plan for the
+  remainder of Phase 1, with the evidence behind each decision and the open
+  questions.
 - `lib/api/request-guards.ts` — reusable Route Handler guards: idempotency-key
   parsing, payload fingerprinting, tenant+operation key namespacing, distributed
   backend detection and the acquire/complete/release wrappers over
   `globalIdempotency` and `rateLimit`.
+- `scripts/vercel-build.mjs` — the Vercel build entrypoint: applies migrations for
+  production builds only, then builds. Supports `--check` to print the plan
+  without running it.
 - Copyright and licensing notices across the project.
 
 ### Changed
@@ -60,7 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `meta` map (`lib/resilience/idempotency.ts`). It is never replayed to clients;
   it records the payload fingerprint used for conflict detection.
 - Express CORS now permits the `Idempotency-Key` request header.
-- The full test suite now stands at **192 tests across 31 files**.
+- **Deployment no longer migrates the production database from preview builds.**
+  `vercel.json` previously ran `prisma migrate deploy && next build` on every
+  deployment, including previews, which frequently share `DATABASE_URL` with
+  production. The build now runs `scripts/vercel-build.mjs`, which applies
+  migrations only when `VERCEL_ENV` is not `preview`/`development` and prints its
+  plan to the build log.
+- The full test suite now stands at **192 tests across 31 files** (feature work
+  in workstream A added no tests; it is verified by the deployment verifier).
 
 ### Removed
 
@@ -87,6 +100,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the idempotency/rate-limit backend is unavailable in production, treats an
   `Idempotency-Key` as bound to one tenant, one endpoint and one request body,
   and never replays one tenant's response to another tenant's key.
+- **A preview deployment can no longer migrate production.** Migrations are
+  applied by `scripts/vercel-build.mjs` for production builds only; the decision
+  is logged in the build output.
+- **The API surface is verified after deploy.** `npm run verify:prod` asserts that
+  `/api/v1/menu` and `/api/v1/orders` answer `401` (not `404`) without
+  credentials, and that the public waitlist route answers with its own JSON
+  `404` — proving the Route Handlers are deployed rather than silently missing.
+- Recorded a new audit finding, **P1-10**: `GET /api/v1/loyalty/profile?email=…`
+  is unauthenticated, unlimited, and creates customer records on an unknown
+  address. Fix scheduled for Phase 4; see `docs/AUDIT.md`.
 
 ---
 

@@ -186,6 +186,12 @@ The single most valuable phase: make the platform **actually deploy**, make the
 **order money path authoritative on both adapters**, and make confirmation emails
 **actually send**. Nothing else is worth doing until this ships.
 
+> The remaining work in this phase has a detailed, reviewable execution plan —
+> including the evidence for every decision and the open questions:
+> **[plans/phase-1-completion.md](./plans/phase-1-completion.md)**. This section
+> stays the source of truth for *what* is left; the plan is the source of truth
+> for *how* and *why*.
+
 ### Progress — 2026-10-15 (partial)
 
 - [x] In-flight work committed (`46998ea`); working tree clean; gates green.
@@ -216,11 +222,20 @@ The single most valuable phase: make the platform **actually deploy**, make the
       never book a second order, and a concurrent duplicate gets `409` instead
       of a second row.
 
+- [x] `vercel.json` reconciled (P0-4 remainder). The build delegates to
+      `scripts/vercel-build.mjs`, which applies migrations for **production
+      builds only** — preview and development builds skip them, so a branch
+      deploy can no longer migrate the production database. The KDS and
+      notification streams declare their `maxDuration` budget explicitly, and
+      `scripts/verify-deployment.mjs` now probes the API surface (`401`, not
+      `404`, without credentials) plus the public waitlist route, so "the API is
+      deployed" is tested rather than assumed.
+
 Still open in this phase:
 
 - [ ] `server/api.ts` trimmed to a thin adapter (it still owns menu caching).
 - [ ] Minimal two-adapter parity smoke (the full contract test is Phase 5).
-- [ ] Reconcile `vercel.json` so the API is reachable on the deployed URL.
+- [ ] Replace the hardcoded 5 % GST and float money in `lib/services/orders.ts` (P1-7).
 
 ### 1.1 Pre-work — protect in-flight work (R10)
 
@@ -254,7 +269,7 @@ Still open in this phase:
 - [x] Fail the upload loudly when object storage is unavailable (no silent fallback) — `503`.
 - [x] Add MIME + magic-byte sniffing and a hard size cap.
 - [x] Remove the `Module not found: Can't resolve '@vercel/blob'` build warning.
-- [ ] Reconcile `vercel.json` with the runtime decision; the API must be reachable on the deployed URL.
+- [x] Reconcile `vercel.json` with the runtime decision; the API must be reachable on the deployed URL. _(Build delegates to `scripts/vercel-build.mjs`, which applies migrations for production builds only, and `scripts/verify-deployment.mjs` now asserts the API surface — see the plan's workstream A.)_
 
 ### 1.5 Fix P0-5 — emails never sent
 
@@ -268,7 +283,7 @@ Still open in this phase:
 | ID | Finding | Evidence pointer | Status |
 | :--- | :--- | :--- | :--- |
 | P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Pricing, order numbers, idempotency and rate limiting fixed.** The hardcoded 5% tax is tracked as P1-7 (Phase 2). |
-| P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` | **Uploads fixed** (S3-compatible `lib/storage/`). `vercel.json` reconcile still open. |
+| P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` | **Fixed** — S3-compatible `lib/storage/` for uploads, production-only migrations and API-surface probes in `scripts/vercel-build.mjs` / `scripts/verify-deployment.mjs`. |
 | P0-5 | Confirmation emails only logged, never sent | `lib/queue/handlers.ts:65–74`, `server/api.ts:292–299` | **Fixed** — the handler sends and fails loudly; a receipt is sent on order creation. |
 | R10 | Uncommitted Phase 2.2 work | `git status` | **Fixed** — committed in `46998ea`. |
 

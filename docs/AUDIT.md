@@ -211,6 +211,14 @@ S3-compatible client. Never persist binary in Postgres; fail the upload instead.
 > cap, re-encodes to strip metadata, and returns `503` when no store is
 > configured — the base64 path is deleted and the build warning is gone.
 > Covered by `tests/unit/storage.test.ts`.
+>
+> **Second half resolved 2026-10-15 (deployment).** `vercel.json` no longer runs
+> `prisma migrate deploy && next build` inline, which would have applied
+> migrations on **preview** deployments too. The build now delegates to
+> `scripts/vercel-build.mjs`, which migrates for production builds only, and
+> `scripts/verify-deployment.mjs` finally asserts the API surface is reachable —
+> `/api/v1/*` routes must answer `401` (not `404`) without credentials. The
+> "API unreachable on the deployed URL" claim is now both fixed and tested.
 
 ---
 
@@ -309,6 +317,18 @@ unique column so replay safety survives a cache flush. **Fix:** Phase 2/3.
 950–965 KB and one PNG at 2 862 KB. Performance budgets are unreachable.
 **Fix:** Phase 6 (highest ROI item in the plan).
 
+### P1-10 · Loyalty profiles are readable — and creatable — by anyone
+`app/api/v1/loyalty/profile/route.ts:4–33` — `GET /api/v1/loyalty/profile?email=…` has **no
+authentication and no rate limit**, and when the address is unknown it calls
+`findOrCreateCustomer()` and then returns a freshly created profile.
+Anyone able to guess an email address can read that customer's loyalty balance and ledger
+history, and can cause the application to create customer records on demand — an
+unauthenticated **write** triggered by a `GET`.
+**Impact:** disclosure of customer PII for any address an attacker supplies, plus unbounded row
+creation. This bypasses the S2S scoping that guards every other `/api/v1/*` route.
+**Fix:** Phase 4 — require a session or a signed, short-lived token; make a read path never
+create records; rate-limit by IP.
+
 ---
 
 ## 5. 🟡 Medium findings (P2)
@@ -323,7 +343,7 @@ unique column so replay safety survives a cache flush. **Fix:** Phase 2/3.
 | P2-6 | **`resolveTenant` / `getOrCreateDefaultTenant` cache-free and write-capable on read paths**, including every SSE connect. | `lib/db/tenant.ts:17–49`, `realtime/kds/route.ts:39` | 2 |
 | P2-7 | **Job queue metrics are meaningless under concurrency**: `processing: this.isProcessing ? 1 : 0` can never exceed 1, and `completedCount`/`failedCount` reset per process. | `lib/queue/job-queue.ts:148–152` | 3 |
 | P2-8 | **KDS broadcast tenant key can be a slug, not a UUID**: `tenantId: order.tenantId \|\| "spice-saffron"` publishes to channel `tenant:spice-saffron`, while subscribers register with a UUID ⇒ the event is never delivered. | `server/api.ts:287` vs `realtime/kds/route.ts:40` | 2 |
-| P2-9 | **The entire Express API surface is untested.** 27 test files cover Next.js and `lib/`; nothing covers `server/api.ts` (menu, orders, coupons, SSE, webhook, metrics). | `tests/**` inventory | 5 |
+| P2-9 | **The entire Express API surface is untested.** 31 test files cover Next.js and `lib/`; nothing covers `server/api.ts` (menu, orders, coupons, SSE, webhook, metrics). | `tests/**` inventory | 5 |
 | P2-10 | **JSON-LD is hardcoded and duplicates config**: `app/layout.tsx:43–76` restates the street address, postcode, phone and hours that already live in `config/site.ts` — two sources of truth that will drift. | `app/layout.tsx:55–72` | 6 |
 | P2-11 | **No coverage instrumentation or gate**; `vitest.config.ts` has no `coverage` block and `@vitest/coverage-v8` is not installed. Coverage is unknown. | `vitest.config.ts` | 5 |
 

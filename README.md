@@ -311,19 +311,26 @@ Everything that varies between environments is configuration, not hardcoded valu
 
 ## API Surface
 
-Route Handlers under `app/api/v1/*` are the production API. The Express service exposes the same surface for self-hosted deployments.
+Route Handlers under `app/api/v1/*` are the production API. The Express service
+(`server/api.ts`, port 4000) is the **self-host and local-development** runtime; it
+implements a subset of this surface, and the two are being brought into line
+(see [docs/plans/phase-1-completion.md](docs/plans/phase-1-completion.md)).
 
-| Endpoint | Method | Auth | Description |
+| Endpoint | Method | Auth | Runtime |
 | :--- | :--- | :--- | :--- |
-| `/api/v1/menu` | GET | Public | Menu catalog with categories and dishes |
-| `/api/v1/orders` | POST | S2S / session | Create an order |
-| `/api/v1/coupons/validate` | POST | Public | Validate a promo code |
-| `/api/v1/reservations` | POST | Public | Create a reservation |
-| `/api/v1/loyalty` | GET/POST | Session | Loyalty balance and ledger |
-| `/api/v1/waitlist` | GET/POST | Public | Waitlist board and entries |
-| `/api/v1/realtime/kds` | GET | S2S / session | Server-Sent Events kitchen stream |
-| `/api/v1/webhooks/payment` | POST | HMAC | Payment gateway webhook ingress |
-| `/api/health` | GET | Public | Liveness probe |
+| `/api/health` | GET | Public | Both |
+| `/api/v1/menu` | GET | S2S `menu:read` | Both |
+| `/api/v1/orders` | GET / POST | S2S `orders:read` / `orders:write` | GET both · POST Next only |
+| `/api/v1/orders/:id` | GET / PATCH | S2S | GET both · PATCH Next only |
+| `/api/v1/reservations` | GET / POST | S2S `reservations:read` / `reservations:write` | Next |
+| `/api/v1/loyalty/profile` | GET | Public (email query param) | Next |
+| `/api/v1/waitlist/:id` | GET | Public | Next |
+| `/api/v1/realtime/kds` | GET | S2S or admin session | Both (SSE) |
+| `/api/v1/webhooks/payment` | POST | HMAC | Both |
+| `/api/v1/webhooks/ingress` | POST | Signature header | Next |
+| `/api/v1/coupons/validate` | POST | Public | Express only |
+| `/api/v1/system/metrics` | GET | Public | Express only |
+| `/api/auth/login`, `/api/auth/logout`, `/api/contact`, `/api/upload`, `/api/notifications` | POST / GET | Mixed (session, public, SSE) | Next |
 
 S2S requests authenticate with `Authorization: Bearer sp_live_...` and require the appropriate scope (for example `orders:write`).
 

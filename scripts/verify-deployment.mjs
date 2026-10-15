@@ -129,6 +129,48 @@ async function runSuite() {
     return { ok: false, error: `Expected redirect (307/302), got HTTP ${res.status}` };
   });
 
+  // 6. API Surface Reachability
+  //
+  // Credential-free and non-mutating: this suite is run against production.
+  // The signal that matters is 401 versus 404 — a deployed Route Handler
+  // answers 401 when the key is missing, whereas a route that did not deploy
+  // (or was never served) 404s. Every `/api/v1/*` route requires an S2S key
+  // except the public waitlist lookup, which is probed by its JSON error body.
+  // Never give this script a real API key.
+  const s2sGuardedRoutes = [
+    { method: "GET", path: "/api/v1/menu" },
+    { method: "GET", path: "/api/v1/orders" },
+    { method: "POST", path: "/api/v1/orders" },
+  ];
+
+  for (const route of s2sGuardedRoutes) {
+    await check(`API Surface: ${route.method} ${route.path} rejects unauthenticated callers`, async () => {
+      const res = await fetch(`${targetUrl}${route.path}`, {
+        method: route.method,
+        ...(route.method === "POST"
+          ? { headers: { "Content-Type": "application/json" }, body: "{}" }
+          : {}),
+      });
+      if (res.status !== 401) {
+        return { ok: false, error: `Expected HTTP 401 without credentials, got HTTP ${res.status}` };
+      }
+      return { ok: true, details: "HTTP 401 — route deployed, auth enforced" };
+    });
+  }
+
+  await check("API Surface: GET /api/v1/waitlist/:id is served (public route)", async () => {
+    const res = await fetch(`${targetUrl}/api/v1/waitlist/00000000-0000-0000-0000-000000000000`);
+    if (res.status !== 404) {
+      return { ok: false, error: `Expected HTTP 404 for an unknown entry, got HTTP ${res.status}` };
+    }
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      // A framework 404 is HTML; the route's own 404 is JSON.
+      return { ok: false, error: `Route did not handle the request (content-type: ${ct})` };
+    }
+    return { ok: true, details: "HTTP 404 with a JSON body — route deployed" };
+  });
+
   // Summary
   console.log(`\n------------------------------------------------------`);
   console.log(`Summary: ${passed} Passed, ${failed} Failed`);

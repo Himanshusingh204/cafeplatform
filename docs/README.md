@@ -26,6 +26,7 @@ role.
 | [DATABASE.md](./DATABASE.md) | Schema, relationships, indexing strategy, migration policy and tenant data model. | New contributor, on-call engineer |
 | [AUDIT.md](./AUDIT.md) | Point-in-time audit of correctness, security, performance and debt, with evidence. | Reviewer, owner, on-call engineer |
 | [ROADMAP.md](./ROADMAP.md) | The nine delivery phases and their exit criteria, from documentation and licensing through commercial readiness. | Owner, decision reviewer, new contributor |
+| [plans/phase-1-completion.md](./plans/phase-1-completion.md) | The reviewable execution plan for the rest of Phase 1: evidence, steps, acceptance criteria and open questions. | Owner, decision reviewer |
 | [OPERATIONS.md](./OPERATIONS.md) | The runbook: environments, deploy, migrations, monitoring, incident response and failure recovery. | On-call engineer, owner |
 | [TESTING.md](./TESTING.md) | Test pyramid, tooling (Vitest 4, Playwright), fixtures, contract tests and quality gates. | New contributor, reviewer |
 | [SEO-AND-PERFORMANCE.md](./SEO-AND-PERFORMANCE.md) | SEO strategy, performance budget and the image/metrics work required to hit it. | New contributor, reviewer |

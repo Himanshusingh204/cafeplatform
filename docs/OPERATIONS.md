@@ -212,10 +212,12 @@ See [`./TESTING.md`](./TESTING.md) for the full strategy.
 
 ## 4. Production deployment — Target A: Vercel (recommended)
 
-`vercel.json` sets `framework: nextjs`, `buildCommand: prisma migrate deploy && next build`,
-and `installCommand: npm install`. **This deploys the Next.js application only.** There is no
-port 4000 in production — the Express API/worker/SSE must be hosted elsewhere
-(Target B/C) if you need it.
+`vercel.json` sets `framework: nextjs`, `installCommand: npm install`, and
+`buildCommand: node scripts/vercel-build.mjs`. **This deploys the Next.js application only.**
+There is no port 4000 in production — the Express API/worker/SSE must be hosted elsewhere
+(Target B/C) if you need it, and note that **no container packaging for it exists in the
+repository yet** (there is no `Dockerfile`); the Target B/C steps in [§6](#6-self-hosted-deployment--target-bc)
+are a design, not a shipped artefact.
 
 ### 4.1 Deploy steps
 
@@ -234,12 +236,19 @@ port 4000 in production — the Express API/worker/SSE must be hosted elsewhere
    > **Warning:** nothing sensitive may be exposed as `NEXT_PUBLIC_*`. Public variables are
    > inlined into the browser bundle. Only `NEXT_PUBLIC_API_URL` (a URL, not a secret) is
    > public by design.
-5. **Verify the build behaviour.** The build runs `prisma migrate deploy` **before**
-   `next build`, so migrations are applied as part of the deploy. Ensure
-   `DATABASE_URL` is available at **build time**, not only at runtime.
-6. **First deploy.** Push to the production branch (or deploy manually). Watch the build log
-   for `prisma migrate deploy` output and any `Module not found: Can't resolve '@vercel/blob'`
-   warning (expected until B1 is fixed).
+5. **Verify the build behaviour.** `node scripts/vercel-build.mjs` applies migrations **only for
+   production builds**: `VERCEL_ENV=preview` (and `development`) skips `prisma migrate deploy`
+   and goes straight to `next build`. This exists so a branch deploy can never migrate the
+   production database. Two consequences to plan for:
+   - Ensure `DATABASE_URL` is available at **build time** in the Production environment, not
+     only at runtime.
+   - **Give preview deployments their own database.** The guard stops the repository from
+     migrating production on a preview build; it cannot stop two environments from being
+     pointed at the same `DATABASE_URL`. Verify this in Vercel → Settings → Environment
+     Variables before the first preview deploy.
+6. **First deploy.** Push to the production branch (or deploy manually). The build log prints
+   the plan up front (`prisma migrate deploy : RUN|skip`, `next build : RUN`), so the migration
+   decision is auditable after the fact.
 7. **Preflight the deployment** from a machine that can reach the URL:
    ```bash
    APP_URL="https://your-domain.com" npm run verify:prod
@@ -247,7 +256,10 @@ port 4000 in production — the Express API/worker/SSE must be hosted elsewhere
    ```
    This checks `/api/health`, security headers, `robots.txt`, `sitemap.xml`, the public routes
    (`/`, `/menu`, `/about`, `/gallery`, `/reservations`, `/contact`, `/faq`, `/privacy`,
-   `/terms`), and the `/admin` → `/admin/login` redirect. It exits non-zero on failure.
+   `/terms`), the `/admin` → `/admin/login` redirect, and the **API surface** — that
+   `/api/v1/menu` and `/api/v1/orders` answer `401` (not `404`) without credentials, which is
+   the difference between a deployed Route Handler and a missing one. It exits non-zero on
+   failure.
 8. **Bootstrap the super admin** against the production database:
    ```bash
    ADMIN_EMAIL="owner@your-domain" \
@@ -527,9 +539,10 @@ Production and CI apply migrations with:
 npm run db:migrate          # prisma migrate deploy
 ```
 
-`vercel.json` runs `prisma migrate deploy && next build`, so a Vercel deploy migrates as part
-of the build. **Never** run `prisma migrate dev` against production: it is interactive and can
-reset data. `migrate deploy` is forward-only and idempotent over already-applied migrations.
+`node scripts/vercel-build.mjs` runs `prisma migrate deploy` for a production Vercel build and
+skips it for preview/development builds, then runs `next build`. **Never** run
+`prisma migrate dev` against production: it is interactive and can reset data. `migrate deploy`
+is forward-only and idempotent over already-applied migrations.
 
 Current migration history (in `prisma/migrations/`):
 

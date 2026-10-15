@@ -1,7 +1,16 @@
 import { db } from "@/lib/db/prisma";
 import { getSession } from "@/lib/auth/session";
+import { sse } from "@/config/limits";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * This stream polls, so it closes itself rather than running forever. The
+ * lifetime is kept below the function's duration cap so the client sees a
+ * graceful end-of-stream and reconnects deliberately, instead of being severed
+ * by the platform. See `config/limits.ts` (`sse`).
+ */
+export const maxDuration = 300;
 
 export async function GET() {
   const admin = await getSession();
@@ -45,12 +54,13 @@ export async function GET() {
         controller.enqueue(encoder.encode("data: heartbeat\n\n"));
       }, 30_000);
 
-      // Cleanup after 5 minutes (prevent infinite connections)
+      // Close before the function's duration cap so the client reconnects on
+      // its own terms rather than being cut off mid-stream.
       const timeout = setTimeout(() => {
         clearInterval(interval);
         clearInterval(heartbeat);
         controller.close();
-      }, 5 * 60 * 1000);
+      }, sse.notificationStreamLifetimeMs);
 
       cleanup = () => {
         clearInterval(interval);

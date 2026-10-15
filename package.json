@@ -15,6 +15,7 @@
     "dev:all": "concurrently -n \"FRONTEND,BACKEND\" -c \"cyan,magenta\" \"npm run dev\" \"npm run dev:server\"",
     "start:server": "tsx server/api.ts",
     "build": "next build",
+    "build:vercel": "node scripts/vercel-build.mjs",
     "start": "next start",
     "postinstall": "prisma generate",
     "lint": "eslint",
