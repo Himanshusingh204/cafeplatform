@@ -62,7 +62,10 @@ AGENTS.md
 HANDOFF.md
 AI_CONTEXT.md
 skills-lock.json
-/docs/
+
+# NOTE: /docs/ is intentionally TRACKED. It holds the architecture, database,
+# operations, testing and SEO documentation sets plus docs/adr/*. Do not
+# re-add a `/docs/` rule here — doing so silently unpublishes the docs.
 
 # TypeScript & Generated code
 *.tsbuildinfo

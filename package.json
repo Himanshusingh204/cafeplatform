@@ -1,7 +1,14 @@
 {
-  "name": "cafe-scaffold",
+  "name": "spice-and-saffron",
   "version": "0.1.0",
   "private": true,
+  "description": "Multi-tenant Indian café and restaurant commerce + operations platform: storefront, ordering, kitchen display, reservations, loyalty and admin CMS.",
+  "author": "Himanshu <himanshuyt21361@gmail.com> (https://github.com/Himanshusingh204)",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:server": "tsx server/api.ts",

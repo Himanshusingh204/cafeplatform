@@ -1,0 +1,250 @@
+SPICE & SAFFRON — PROPRIETARY SOURCE-AVAILABLE LICENSE
+======================================================
+
+Copyright (c) 2026 Himanshu. All Rights Reserved.
+
+Project : Spice & Saffron — Indian Fine Dining & Café Platform
+Author  : Himanshu
+Contact : himanshuyt21361@gmail.com
+GitHub  : https://github.com/Himanshusingh204
+
+--------------------------------------------------------------------------------
+PLEASE READ THIS LICENSE CAREFULLY BEFORE USING THIS SOFTWARE.
+--------------------------------------------------------------------------------
+
+This is a PROPRIETARY, SOURCE-AVAILABLE license. It is NOT an open-source
+license. The source code is made visible for transparency, portfolio review and
+personal use only. It is NOT free for commercial use.
+
+
+1. DEFINITIONS
+--------------
+
+1.1 "Software" means the source code, object code, configuration, database
+    schema, migrations, documentation, design tokens, and any other files
+    distributed in this repository, together with any derivative works.
+
+1.2 "Brand Assets" means the name "Spice & Saffron", its wordmarks, logos,
+    icons, illustrations, photography, copywriting, colour palette and any
+    other brand identifiers contained in this repository.
+
+1.3 "Licensor" means Himanshu, the copyright holder identified above.
+
+1.4 "You" means the individual or legal entity exercising rights under this
+    License.
+
+1.5 "Personal Use" means use by a natural person, strictly for that person's
+    own private, non-commercial, non-revenue-generating purposes, including
+    private learning, private study, and running the Software on a local or
+    private machine that does not serve the public and does not generate
+    income.
+
+1.6 "Commercial Use" means ANY use that is not Personal Use. Without
+    limitation, Commercial Use includes:
+
+    (a) use by, for, or on behalf of any company, partnership, LLP, sole
+        proprietorship, trust, NGO, government body, or other organisation;
+    (b) operating the Software, or any derivative of it, as or within a
+        revenue-generating product or service, including SaaS, hosted,
+        managed, white-label or agency-delivered services;
+    (c) deploying the Software as the production website, ordering system,
+        point-of-sale bridge, kitchen display system, or booking system of any
+        real café, restaurant, cloud kitchen, hotel, food brand or franchise;
+    (d) client work, freelance work, contract work or consulting deliverables;
+    (e) internal business use of any kind, whether or not it directly earns
+        revenue;
+    (f) bundling, embedding, or redistributing the Software with any product
+        that is sold, licensed, leased or monetised;
+    (g) providing paid support, hosting, integration or customisation services
+        based on the Software;
+    (h) use in any advertisement, course, paid tutorial, or paid training
+        material.
+
+
+2. GRANT OF RIGHTS — PERSONAL USE ONLY
+--------------------------------------
+
+2.1 Subject to full compliance with this License, the Licensor grants You a
+    limited, worldwide, royalty-free, non-exclusive, non-transferable,
+    non-sublicensable and REVOCABLE license to:
+
+    (a) view, read and study the Software;
+    (b) clone and fork the repository;
+    (c) modify the Software;
+    (d) run and self-host the Software strictly for Personal Use;
+    (e) share the repository link for the purpose of private, non-commercial
+        study.
+
+2.2 All rights not expressly granted in Section 2.1 are reserved by the
+    Licensor.
+
+
+3. COMMERCIAL USE REQUIRES A SEPARATE LICENCE
+---------------------------------------------
+
+3.1 COMMERCIAL USE OF THIS SOFTWARE IS STRICTLY PROHIBITED without a separate,
+    prior, written commercial license granted by the Licensor.
+
+3.2 To obtain a commercial license, including for restaurant, agency,
+    white-label, SaaS, franchise, integration or enterprise use, You must
+    contact the Licensor:
+
+        Email : himanshuyt21361@gmail.com
+        GitHub: https://github.com/Himanshusingh204
+
+3.3 Commercial licensing terms, fees, permitted scope and support levels are
+    negotiated individually and are not granted by this document.
+
+3.4 Any Commercial Use without a signed commercial license is a material
+    breach of this License and an infringement of the Licensor's copyright.
+
+
+4. PROHIBITED ACTS
+------------------
+
+You must NOT, and must not permit any third party to:
+
+4.1 sell, resell, rent, lease, lend, sublicense, distribute, publish, mirror or
+    otherwise make the Software available to any third party, whether for
+    profit or not, except as expressly allowed by Section 2.1;
+
+4.2 offer the Software, or any derivative, as a hosted or managed service
+    (SaaS, PaaS, ASP) to any third party;
+
+4.3 use the Software to provide services to a business or to the public;
+
+4.4 remove, obscure, alter or circumvent any copyright notice, license notice,
+    attribution, watermark, "SPDX" identifier, or author credit contained in
+    the Software;
+
+4.5 use, reproduce or imitate the Brand Assets for any purpose without prior
+    written consent — the Brand Assets are expressly reserved and are NOT
+    licensed to You under this License;
+
+4.6 represent the Software as Your own original work, or claim authorship,
+    ownership or endorsement;
+
+4.7 sublicense, assign, transfer or otherwise convey any right granted under
+    this License;
+
+4.8 use the Software in any way that violates applicable law, or that
+    infringes the rights of any third party, including intellectual property,
+    privacy or data-protection rights.
+
+
+5. ATTRIBUTION
+--------------
+
+5.1 Any permitted copy, fork or derivative work must retain, unmodified:
+
+    (a) this LICENSE file in full;
+    (b) the copyright notice "Copyright (c) 2026 Himanshu";
+    (c) a clear notice stating that the work is a derivative of
+        "Spice & Saffron" by Himanshu and is subject to this License.
+
+5.2 Attribution must be visible and must not be hidden in a way that a
+    reasonable person would fail to find.
+
+
+6. THIRD-PARTY COMPONENTS
+-------------------------
+
+6.1 The Software depends on third-party open-source packages (for example
+    Next.js, React, Prisma, Tailwind CSS, Express, and others). Those packages
+    remain governed by their own licenses, which are separate from and
+    independent of this License.
+
+6.2 This License does not grant You any rights in third-party components
+    beyond those granted by their respective licenses.
+
+6.3 This License does not grant any right to use third-party trademarks,
+    including payment-gateway brands, map-provider brands, or delivery-
+    aggregator brands referenced in the Software.
+
+
+7. CONTRIBUTIONS
+----------------
+
+7.1 By submitting any contribution (patch, pull request, issue, code, design,
+    copy or asset) to the Licensor, You grant the Licensor a perpetual,
+    worldwide, irrevocable, royalty-free license to use, reproduce, modify,
+    and relicense that contribution as part of the Software.
+
+7.2 Unsolicited contributions do not grant You any ownership, co-authorship or
+    revenue right in the Software.
+
+
+8. NO WARRANTY
+--------------
+
+8.1 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT.
+
+8.2 The Licensor does not warrant that the Software will be uninterrupted,
+    secure, error-free, or that it will meet Your requirements. You bear the
+    entire risk of using the Software.
+
+8.3 You are solely responsible for the security, privacy compliance, tax
+    compliance, payment compliance and regulatory compliance of any deployment
+    You make.
+
+
+9. LIMITATION OF LIABILITY
+--------------------------
+
+9.1 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+    LICENSOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+    EXEMPLARY, PUNITIVE OR CONSEQUENTIAL DAMAGES, OR FOR ANY LOSS OF PROFITS,
+    REVENUE, DATA, BUSINESS, GOODWILL OR ANTICIPATED SAVINGS, HOWEVER CAUSED
+    AND UNDER ANY THEORY OF LIABILITY, ARISING OUT OF OR RELATING TO THE
+    SOFTWARE OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+    DAMAGE.
+
+9.2 The Licensor's total aggregate liability under this License shall not
+    exceed zero ( INR 0 ), the Software being provided at no charge.
+
+
+10. TERMINATION
+---------------
+
+10.1 This License is effective until terminated.
+
+10.2 The Licensor may terminate this License immediately, without notice, if
+     You breach any term. Upon termination, You must immediately cease all use
+     of the Software and destroy all copies in Your possession or control.
+
+10.3 Sections 1, 3, 4, 5, 6, 7, 8, 9, 10 and 11 survive termination.
+
+10.4 The Licensor reserves the right to change the terms of this License for
+     future versions of the Software.
+
+
+11. GOVERNING LAW AND JURISDICTION
+----------------------------------
+
+11.1 This License is governed by and construed in accordance with the laws of
+     India.
+
+11.2 The courts at New Delhi, India shall have exclusive jurisdiction over any
+     dispute arising out of or relating to this License or the Software.
+
+11.3 If any provision of this License is held unenforceable, that provision
+     shall be limited or severed to the minimum extent necessary, and the
+     remaining provisions shall remain in full force and effect.
+
+
+--------------------------------------------------------------------------------
+SUMMARY (NOT LEGALLY BINDING — THE TEXT ABOVE GOVERNS)
+--------------------------------------------------------------------------------
+  Personal, private, non-commercial use ................. PERMITTED
+  Study, fork, and modify for yourself .................. PERMITTED
+  Local / private self-host, no revenue ................. PERMITTED
+  Any commercial, business or client use ................ PROHIBITED
+  Hosting it as a service for others .................... PROHIBITED
+  Using the "Spice & Saffron" brand assets .............. PROHIBITED
+  Commercial license .................................... CONTACT
+                                                          himanshuyt21361@gmail.com
+--------------------------------------------------------------------------------
+
+Copyright (c) 2026 Himanshu. All Rights Reserved.
