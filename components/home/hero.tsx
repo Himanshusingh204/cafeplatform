@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Star, Flame, Heart } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 
@@ -55,38 +55,10 @@ export function Hero() {
             </Link>
             <Link
               href="/reservations"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "lg" }),
-                "border-border bg-card/80 hover:bg-card hover:border-primary/40 text-foreground transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
-              )}
+              className="px-2 py-3 text-sm font-semibold text-primary underline-offset-4 hover:underline"
             >
-              <span>Book a Table</span>
+              Book a table
             </Link>
-          </div>
-
-          {/* Highlights & Culinary Badges */}
-          <div className="grid grid-cols-3 gap-3 border-t border-border/70 pt-6 max-w-lg">
-            <div className="space-y-0.5">
-              <p className="text-xs font-bold text-foreground flex items-center gap-1">
-                <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
-                4.9 / 5.0
-              </p>
-              <p className="text-[11px] text-muted-foreground">850+ Verified Reviews</p>
-            </div>
-            <div className="space-y-0.5">
-              <p className="text-xs font-bold text-foreground flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5 text-primary" />
-                Live Tandoor
-              </p>
-              <p className="text-[11px] text-muted-foreground">Charcoal-Smoked</p>
-            </div>
-            <div className="space-y-0.5">
-              <p className="text-xs font-bold text-foreground flex items-center gap-1">
-                <Heart className="h-3.5 w-3.5 text-emerald-500" />
-                100% Desi Ghee
-              </p>
-              <p className="text-[11px] text-muted-foreground">Fresh Daily Prep</p>
-            </div>
           </div>
         </div>
 

@@ -69,11 +69,11 @@ export function AboutValues({ values = DEFAULT_VALUES }: { values?: ValueItem[] 
               Three rules, kept since day one
             </h2>
           </Reveal>
-          <dl className="mt-12 divide-y divide-border border-b border-t border-border">
+          <dl className="mt-8 divide-y divide-border border-b border-t border-border">
             {values.map((value) => (
               <div
                 key={value.title}
-                className="grid gap-2 py-7 md:grid-cols-[14rem_1fr] md:gap-8"
+                className="grid gap-2 py-5 md:grid-cols-[14rem_1fr] md:gap-8"
               >
                 <dt className="heading-display text-xl md:text-[1.35rem]">
                   {value.title}

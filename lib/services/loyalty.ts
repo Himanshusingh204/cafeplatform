@@ -128,40 +128,47 @@ export async function processLoyaltyForOrder(orderId: string) {
   const currentTier = customer.loyaltyTier;
   const pointsEarned = calculatePointsEarned(subtotal, currentTier);
 
-  const newLifetimeSpend = Number(customer.lifetimeSpend) + subtotal;
-  const newTier = calculateTier(newLifetimeSpend);
-  const newPoints = customer.loyaltyPoints + pointsEarned;
+  // One transaction with atomic increments: concurrent orders or a redemption
+  // cannot overwrite each other's balance, and a failure leaves nothing half-written
+  // so the whole step can be retried safely.
+  const updated = await db.$transaction(async (tx) => {
+    const alreadyAwarded = await tx.loyaltyLedger.findFirst({
+      where: { orderId: order.id, pointsDelta: { gt: 0 } },
+      select: { id: true },
+    });
+    if (alreadyAwarded) return null;
 
-  // Update customer record
-  await db.customerUser.update({
-    where: { id: customer.id },
-    data: {
-      loyaltyPoints: newPoints,
-      lifetimeSpend: new Prisma.Decimal(newLifetimeSpend),
-      loyaltyTier: newTier,
-    },
-  });
-
-  // Record ledger entry
-  if (pointsEarned > 0) {
-    await db.loyaltyLedger.create({
+    const bumped = await tx.customerUser.update({
+      where: { id: customer.id },
       data: {
-        customerId: customer.id,
-        orderId: order.id,
-        pointsDelta: pointsEarned,
-        reason: `Earned on order ${order.orderNumber} (${pointsEarned} pts at ${TIER_CONFIG[currentTier]?.name || currentTier})`,
+        loyaltyPoints: { increment: pointsEarned },
+        lifetimeSpend: { increment: new Prisma.Decimal(subtotal) },
       },
     });
-  }
+    const tier = calculateTier(Number(bumped.lifetimeSpend));
+    if (tier !== bumped.loyaltyTier) {
+      await tx.customerUser.update({ where: { id: customer.id }, data: { loyaltyTier: tier } });
+    }
 
-  // Update order with earned points and customerUserId link
-  await db.order.update({
-    where: { id: order.id },
-    data: {
-      customerUserId: customer.id,
-      loyaltyPointsEarned: pointsEarned,
-    },
+    if (pointsEarned > 0) {
+      await tx.loyaltyLedger.create({
+        data: {
+          customerId: customer.id,
+          orderId: order.id,
+          pointsDelta: pointsEarned,
+          reason: `Earned on order ${order.orderNumber} (${pointsEarned} pts at ${TIER_CONFIG[currentTier]?.name || currentTier})`,
+        },
+      });
+    }
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { customerUserId: customer.id, loyaltyPointsEarned: pointsEarned },
+    });
+    return { newPoints: bumped.loyaltyPoints, tier };
   });
+  if (!updated) return null;
+  const { newPoints, tier: newTier } = updated;
 
   return {
     customerId: customer.id,

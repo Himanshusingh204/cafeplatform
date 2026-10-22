@@ -37,14 +37,17 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 // Trial policy, report-only: same hosts as above but no inline or eval script
-// execution. Violations are posted to /api/csp-report. See docs/OPERATIONS.md.
+// execution. Next.js inlines scripts, so this reports on every page view; it is
+// opt-in (CSP_REPORT_ONLY=true) while a nonce-based policy is being worked out. Violations are posted to /api/csp-report. See docs/OPERATIONS.md.
 const reportOnlyPolicy = contentSecurityPolicy
   .replace(/script-src [^;]*/, "script-src 'self' https://checkout.razorpay.com https://js.stripe.com")
   .concat("; report-uri /api/csp-report");
 
 const securityHeaders = [
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
-  { key: "Content-Security-Policy-Report-Only", value: reportOnlyPolicy },
+  ...(process.env.CSP_REPORT_ONLY === "true"
+    ? [{ key: "Content-Security-Policy-Report-Only", value: reportOnlyPolicy }]
+    : []),
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

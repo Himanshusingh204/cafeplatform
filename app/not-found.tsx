@@ -15,6 +15,10 @@ export default function NotFound() {
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         Back to home
       </Link>
+      <p className="mt-4 text-sm text-muted-foreground">
+        Or go to the <Link href="/menu" className="font-medium text-primary underline underline-offset-4">menu</Link> or{" "}
+        <Link href="/contact" className="font-medium text-primary underline underline-offset-4">contact us</Link>.
+      </p>
     </div>
   );
 }

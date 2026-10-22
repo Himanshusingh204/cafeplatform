@@ -8,7 +8,6 @@ import {
   type PaymentOrderResult,
 } from "@/lib/payments/engine";
 import { broadcastEvent } from "@/lib/realtime/bus";
-import { sendOrderReceipt } from "@/lib/email/notifier";
 import { logger } from "@/lib/logger";
 
 export interface PaymentActionResult<T = unknown> {
@@ -152,7 +151,7 @@ export async function verifyClientPaymentAction(input: {
     // Real-time KDS dispatch
     broadcastEvent({
       type: "order:status_changed",
-      tenantId: updatedOrder.tenantId || "spice-saffron",
+      tenantId: updatedOrder.tenantId,
       timestamp: new Date().toISOString(),
       data: {
         id: updatedOrder.id,
@@ -161,20 +160,6 @@ export async function verifyClientPaymentAction(input: {
         paymentStatus: "PAID",
       },
     });
-
-    // Send customer receipt
-    sendOrderReceipt({
-      customerName: updatedOrder.customerName,
-      customerEmail: updatedOrder.customerEmail,
-      orderNumber: updatedOrder.orderNumber,
-      pickupTime: updatedOrder.pickupTime,
-      total: Number(updatedOrder.total),
-      items: updatedOrder.items.map((i) => ({
-        dishName: i.dishName,
-        quantity: i.quantity,
-        price: Number(i.price),
-      })),
-    }).catch(() => undefined);
 
     revalidatePath(`/order/${updatedOrder.id}`);
     revalidatePath("/admin/orders");

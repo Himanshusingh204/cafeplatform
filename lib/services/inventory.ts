@@ -3,6 +3,9 @@ import "server-only";
 import { db } from "@/lib/db/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
 
+/** The transaction client of the extended `db`. */
+type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
 export interface IngredientInput {
   name: string;
   unit?: string;
@@ -173,7 +176,12 @@ export async function getRecipeForDish(dishId: string) {
  * all dishes that require that ingredient!
  */
 export async function depleteInventoryForOrder(orderId: string) {
-  const order = await db.order.findUnique({
+  // All-or-nothing, so a failed attempt can be retried without double-counting.
+  return db.$transaction((tx) => depleteInTransaction(tx, orderId));
+}
+
+async function depleteInTransaction(tx: Tx, orderId: string) {
+  const order = await tx.order.findUnique({
     where: { id: orderId },
     include: {
       items: true,
@@ -203,7 +211,7 @@ export async function depleteInventoryForOrder(orderId: string) {
   }
 
   const dishIds = Array.from(dishQuantities.keys());
-  const recipeItems = await db.recipeItem.findMany({
+  const recipeItems = await tx.recipeItem.findMany({
     where: { dishId: { in: dishIds } },
     include: { ingredient: true },
   });
@@ -227,13 +235,16 @@ export async function depleteInventoryForOrder(orderId: string) {
 
   // Apply depletions
   for (const [ingredientId, { ingredient, amount }] of ingredientDepletion.entries()) {
-    const currentStock = Number(ingredient.currentStock);
-    const newStock = Math.max(0, currentStock - amount);
-
-    await db.ingredient.update({
+    // Atomic decrement: two orders at once cannot overwrite each other's stock.
+    const after = await tx.ingredient.update({
       where: { id: ingredientId },
-      data: { currentStock: new Prisma.Decimal(newStock) },
+      data: { currentStock: { decrement: new Prisma.Decimal(amount) } },
     });
+    let newStock = Number(after.currentStock);
+    if (newStock < 0) {
+      await tx.ingredient.update({ where: { id: ingredientId }, data: { currentStock: new Prisma.Decimal(0) } });
+      newStock = 0;
+    }
 
     depletedIngredients.push({
       id: ingredientId,
@@ -243,7 +254,7 @@ export async function depleteInventoryForOrder(orderId: string) {
 
     // If ingredient drops to zero or below, auto-86 all dishes using this ingredient!
     if (newStock <= 0) {
-      const affected86 = await checkAndAuto86(ingredientId);
+      const affected86 = await checkAndAuto86(ingredientId, tx);
       auto86Dishes.push(...affected86);
     }
   }
@@ -254,8 +265,8 @@ export async function depleteInventoryForOrder(orderId: string) {
 /**
  * Check if ingredient is at or below 0 stock; if so, Auto-86 all dishes needing it
  */
-export async function checkAndAuto86(ingredientId: string) {
-  const ingredient = await db.ingredient.findUnique({
+export async function checkAndAuto86(ingredientId: string, client: Tx | typeof db = db) {
+  const ingredient = await client.ingredient.findUnique({
     where: { id: ingredientId },
     include: {
       recipeItems: {
@@ -280,7 +291,7 @@ export async function checkAndAuto86(ingredientId: string) {
 
   const dishIds = dishesTo86.map((d) => d.id);
 
-  await db.dish.updateMany({
+  await client.dish.updateMany({
     where: { id: { in: dishIds } },
     data: { isAvailable: false },
   });

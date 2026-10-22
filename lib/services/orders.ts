@@ -14,6 +14,7 @@ import { processLoyaltyForOrder } from "@/lib/services/loyalty";
 import { after } from "next/server";
 import { isEmailConfigured } from "@/lib/email/notifier";
 import { enqueueOutboxEvent } from "@/lib/outbox/enqueue";
+import { ORDER_INVENTORY_EVENT, ORDER_LOYALTY_EVENT } from "@/lib/outbox/handlers";
 import { ORDER_RECEIPT_EVENT } from "@/lib/outbox/handlers";
 import { processOutbox } from "@/lib/outbox/process";
 import {
@@ -577,9 +578,9 @@ export async function createOrder(input: CreateOrderInput) {
   const order = await createWithRetry();
 
   // Deplete inventory and auto-86 if stock reaches 0
-  await depleteInventoryForOrder(order.id).catch((err) => {
-    console.error("depleteInventoryForOrder error:", err);
-  });
+  await depleteInventoryForOrder(order.id).catch((err) =>
+    deferOrderStep(ORDER_INVENTORY_EVENT, order, err)
+  );
 
   // Table occupancy if Dine-In
   if (order.diningMode === "DINE_IN" && order.tableNumber) {
@@ -589,11 +590,11 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   // Award customer loyalty points
-  await processLoyaltyForOrder(order.id).catch((err) => {
-    console.error("processLoyaltyForOrder error:", err);
-  });
+  await processLoyaltyForOrder(order.id).catch((err) =>
+    deferOrderStep(ORDER_LOYALTY_EVENT, order, err)
+  );
 
-  const tenantId = order.tenantId || "spice-saffron";
+  const tenantId = order.tenantId;
   broadcastEvent({
     type: "order:created",
     tenantId,
@@ -635,6 +636,14 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   return order;
+}
+
+/** A post-order step failed: log it and queue a retry instead of losing it. */
+async function deferOrderStep(type: string, order: { id: string; tenantId: string }, err: unknown) {
+  console.error(`${type} failed for order ${order.id}:`, err);
+  await enqueueOutboxEvent(db, { tenantId: order.tenantId, type, payload: { orderId: order.id } }).catch(
+    (queueErr) => console.error(`${type} could not be queued for order ${order.id}:`, queueErr)
+  );
 }
 
 export async function getOrderById(id: string) {

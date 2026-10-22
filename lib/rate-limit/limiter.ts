@@ -90,7 +90,8 @@ export async function rateLimit(
   if (UPSTASH_URL && UPSTASH_TOKEN) {
     try {
       return await upstashSlidingWindow(key, max, windowMs);
-    } catch {
+    } catch (error) {
+      console.warn("rateLimit: Upstash failed, using per-instance memory counter.", error);
       return memSlidingWindow(key, max, windowMs);
     }
   }

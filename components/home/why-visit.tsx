@@ -34,7 +34,7 @@ export function WhyVisit() {
       <div className="container-site grid gap-12 lg:grid-cols-12 lg:gap-16 items-start">
         <Reveal className="lg:col-span-5">
           <div className="lg:sticky lg:top-28 space-y-4">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>Our Kitchen Philosophy</span>
             </div>

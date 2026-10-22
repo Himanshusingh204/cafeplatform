@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { checkOrigin } from "@/lib/api/request";
 import { getSession } from "@/lib/auth/session";
+import { hasPermission, permissions } from "@/config/roles";
 import { getStorageDriver, isStorageConfigured } from "@/lib/storage";
-import { buildStorageKey, processUpload } from "@/lib/storage/image";
+import { MAX_UPLOAD_BYTES, buildStorageKey, processUpload } from "@/lib/storage/image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,18 @@ export async function POST(req: NextRequest) {
   const admin = await getSession();
   if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const mayUpload = [permissions.EDIT_MENU, permissions.MANAGE_GALLERY, permissions.MANAGE_SETTINGS].some((p) =>
+    hasPermission(admin.role, p)
+  );
+  if (!mayUpload) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Reject oversized bodies before they are buffered (multipart adds a little overhead).
+  if (Number(req.headers.get("content-length") ?? "0") > MAX_UPLOAD_BYTES + 64 * 1024) {
+    return NextResponse.json({ error: "Image is too large." }, { status: 413 });
   }
 
   if (!isStorageConfigured()) {

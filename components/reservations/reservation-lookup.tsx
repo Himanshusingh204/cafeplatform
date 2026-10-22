@@ -113,7 +113,7 @@ export function ReservationLookup() {
         <button
           type="submit"
           disabled={loading || !code.trim()}
-          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50 transition-all shrink-0"
+          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-80 transition-all shrink-0"
         >
           {loading ? "Searching" : "Check status"}
         </button>

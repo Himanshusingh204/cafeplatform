@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const { email, password } = parsed.data;
 
-  const accountLimiter = await rateLimit(`login-account:${email}`, limits.login.max, limits.login.windowMs);
+  const accountLimiter = await rateLimit(`login-account:${email}`, limits.login.max * 4, limits.login.windowMs);
   if (!accountLimiter.success) return rateLimited(accountLimiter.retryAfterMs);
 
   const admin = await db.admin.findUnique({ where: { email } });

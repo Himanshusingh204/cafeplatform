@@ -75,7 +75,7 @@ export function MenuView({ categories }: MenuViewProps) {
   const totalMatches = filteredCategories.reduce((acc, cat) => acc + cat.dishes.length, 0);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       {/* Controls Bar: Search, Dietary Filters, and View Toggle */}
       <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-card md:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -249,7 +249,7 @@ export function MenuView({ categories }: MenuViewProps) {
         </div>
       ) : (
         /* Categories & Dishes Display */
-        <div className="space-y-16 md:space-y-20">
+        <div className="space-y-10 md:space-y-12">
           {filteredCategories.map((category) => (
             <section key={category.id} id={category.slug} className="scroll-mt-24">
               <div className="mb-6 max-w-xl">

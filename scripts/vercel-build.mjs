@@ -53,6 +53,13 @@ if (checkOnly) {
 
 console.log(describePlan());
 
+// The public layout resolves the default tenant while prerendering; without this
+// flag `next build` fails late with a TenantResolutionError. Fail early instead.
+if (process.env.ALLOW_DEFAULT_TENANT !== "true") {
+  console.error("\nALLOW_DEFAULT_TENANT=true is required for single-tenant builds. Set it in the host's environment variables.");
+  process.exit(1);
+}
+
 if (shouldMigrate) {
   if (!process.env.DATABASE_URL) {
     console.error("\nDATABASE_URL is required to apply migrations. Refusing to build.");

@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/prisma";
 import { verifyRazorpayWebhookSignature } from "@/lib/payments/engine";
 import { broadcastEvent } from "@/lib/realtime/bus";
-import { sendOrderReceipt } from "@/lib/email/notifier";
 import { logger } from "@/lib/logger";
 import { captureRejection } from "@/lib/payments/capture-guard";
 
@@ -120,7 +119,7 @@ export async function POST(req: NextRequest) {
       // 4. Notify KDS in real-time
       broadcastEvent({
         type: "order:status_changed",
-        tenantId: updatedOrder.tenantId || "spice-saffron",
+        tenantId: updatedOrder.tenantId,
         timestamp: new Date().toISOString(),
         data: {
           id: updatedOrder.id,
@@ -129,20 +128,6 @@ export async function POST(req: NextRequest) {
           paymentStatus: "PAID",
         },
       });
-
-      // 5. Send customer receipt
-      sendOrderReceipt({
-        customerName: updatedOrder.customerName,
-        customerEmail: updatedOrder.customerEmail,
-        orderNumber: updatedOrder.orderNumber,
-        pickupTime: updatedOrder.pickupTime,
-        total: Number(updatedOrder.total),
-        items: updatedOrder.items.map((i) => ({
-          dishName: i.dishName,
-          quantity: i.quantity,
-          price: Number(i.price),
-        })),
-      }).catch(() => undefined);
 
       return NextResponse.json({ received: true, success: true, orderId: updatedOrder.id });
     } catch (dbError) {

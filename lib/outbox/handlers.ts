@@ -1,8 +1,12 @@
 import "server-only";
 
 import { isEmailConfigured, sendOrderReceipt } from "@/lib/email/notifier";
+import { depleteInventoryForOrder } from "@/lib/services/inventory";
+import { processLoyaltyForOrder } from "@/lib/services/loyalty";
 
 export const ORDER_RECEIPT_EVENT = "order.receipt";
+export const ORDER_INVENTORY_EVENT = "order.inventory";
+export const ORDER_LOYALTY_EVENT = "order.loyalty";
 
 export interface OrderReceiptPayload {
   customerName: string;
@@ -26,5 +30,13 @@ export const defaultOutboxHandlers: Record<string, OutboxHandler> = {
     if (!isEmailConfigured()) return;
     const result = await sendOrderReceipt(payload as OrderReceiptPayload);
     if (!result.sent) throw new Error("Email provider did not accept the receipt.");
+  },
+  // Retry of a post-order step that failed inline. Each runs in one transaction,
+  // so a failed attempt leaves nothing behind and repeating it is safe.
+  [ORDER_INVENTORY_EVENT]: async (payload) => {
+    await depleteInventoryForOrder((payload as { orderId: string }).orderId);
+  },
+  [ORDER_LOYALTY_EVENT]: async (payload) => {
+    await processLoyaltyForOrder((payload as { orderId: string }).orderId);
   },
 };

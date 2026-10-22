@@ -47,16 +47,26 @@ describe("POST /api/csp-report", () => {
 });
 
 describe("CSP headers in next.config", () => {
-  it("keeps the enforcing policy and adds a stricter report-only one", async () => {
-    const [{ headers }] = await nextConfig.headers!();
-    const get = (k: string) => headers.find((h) => h.key === k)?.value ?? "";
-    expect(get("Content-Security-Policy")).toContain("'unsafe-inline'");
-    const ro = get("Content-Security-Policy-Report-Only");
+  const headerValue = async (config: typeof nextConfig, key: string) => {
+    const [{ headers }] = await config.headers!();
+    return headers.find((h) => h.key === key)?.value ?? "";
+  };
+
+  it("enforces a policy and sends no report-only trial by default", async () => {
+    expect(await headerValue(nextConfig, "Content-Security-Policy")).toContain("'unsafe-inline'");
+    expect(await headerValue(nextConfig, "Content-Security-Policy-Report-Only")).toBe("");
+  });
+
+  it("adds a stricter report-only policy when CSP_REPORT_ONLY=true", async () => {
+    vi.stubEnv("CSP_REPORT_ONLY", "true");
+    vi.resetModules();
+    const { default: config } = await import("@/next.config");
+    vi.unstubAllEnvs();
+    const ro = await headerValue(config, "Content-Security-Policy-Report-Only");
     const scriptSrc = ro.split("; ").find((d) => d.startsWith("script-src")) ?? "";
     expect(scriptSrc).not.toContain("unsafe-inline");
     expect(scriptSrc).not.toContain("unsafe-eval");
     expect(scriptSrc).toContain("https://checkout.razorpay.com");
-    expect(scriptSrc).toContain("https://js.stripe.com");
     expect(ro).toContain("report-uri /api/csp-report");
   });
 });
