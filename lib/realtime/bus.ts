@@ -24,9 +24,8 @@ declare global {
 const bus = globalThis.__realtimeBus ?? new EventEmitter();
 bus.setMaxListeners(100);
 
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__realtimeBus = bus;
-}
+// Always share: separately bundled routes/actions must reach the same emitter.
+globalThis.__realtimeBus = bus;
 
 /**
  * Broadcasts a real-time event to all connected listeners (KDS, WebSockets, SSE).

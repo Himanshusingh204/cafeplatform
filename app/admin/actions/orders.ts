@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
 import { updateOrderStatus } from "@/lib/services/orders";
 import { db } from "@/lib/db/prisma";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import type { OrderStatus } from "@/lib/generated/prisma/enums";
 
 export interface ActionState {
@@ -16,10 +17,10 @@ export async function updateOrderStatusAction(
   id: string,
   status: OrderStatus
 ): Promise<ActionState> {
-  const admin = await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.MANAGE_ORDERS);
 
   try {
-    await updateOrderStatus(id, status, admin.id);
+    await updateOrderStatus(id, status, admin.id, await getAdminTenantId(admin));
     revalidatePath("/admin/orders");
     revalidatePath("/admin");
     return { ok: true };
@@ -30,10 +31,11 @@ export async function updateOrderStatusAction(
 }
 
 export async function getActiveKDSOrdersAction() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.MANAGE_ORDERS);
 
   const raw = await db.order.findMany({
     where: {
+      tenantId: await getAdminTenantId(admin),
       orderStatus: {
         in: ["PENDING", "CONFIRMED", "PREPARING", "READY", "COMPLETED"],
       },
@@ -81,11 +83,11 @@ export async function adminBumpOrderItemAction(
   orderItemId: string,
   isCompleted: boolean
 ): Promise<ActionState> {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.MANAGE_ORDERS);
 
   try {
     const { updateOrderItemCompletion } = await import("@/lib/services/orders");
-    await updateOrderItemCompletion(orderItemId, isCompleted);
+    await updateOrderItemCompletion(orderItemId, isCompleted, await getAdminTenantId(admin));
     revalidatePath("/admin/orders");
     return { ok: true };
   } catch (error) {

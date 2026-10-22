@@ -1,17 +1,38 @@
 import type { MetadataRoute } from "next";
 import { db } from "@/lib/db/prisma";
+import { baseUrl } from "@/lib/seo/jsonld";
+
+type StaticRoute = {
+  path: string;
+  changeFrequency: "weekly" | "monthly" | "yearly";
+  priority: number;
+};
+
+// Indexable routes only — `/checkout`, `/order/[id]` and `/admin/*` are private.
+const STATIC_ROUTES: readonly StaticRoute[] = [
+  { path: "", changeFrequency: "weekly", priority: 1 },
+  { path: "/about", changeFrequency: "monthly", priority: 0.7 },
+  { path: "/menu", changeFrequency: "weekly", priority: 0.9 },
+  { path: "/gallery", changeFrequency: "monthly", priority: 0.7 },
+  { path: "/contact", changeFrequency: "monthly", priority: 0.7 },
+  { path: "/faq", changeFrequency: "monthly", priority: 0.6 },
+  { path: "/reservations", changeFrequency: "weekly", priority: 0.8 },
+  { path: "/loyalty", changeFrequency: "monthly", priority: 0.6 },
+  { path: "/waitlist", changeFrequency: "weekly", priority: 0.7 },
+  { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
+  { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
+];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const lastModified = new Date();
+  const appUrl = baseUrl();
+  // Date-only so repeated builds on the same day produce identical output.
+  const lastModified = new Date(new Date().toISOString().slice(0, 10));
 
-  const staticRoutes = ["", "/about", "/menu", "/gallery", "/contact", "/faq", "/privacy", "/terms"];
-
-  const staticEntries = staticRoutes.map((route) => ({
-    url: `${appUrl}${route}`,
+  const staticEntries: MetadataRoute.Sitemap = STATIC_ROUTES.map((route) => ({
+    url: route.path === "" ? `${appUrl}/` : `${appUrl}${route.path}`,
     lastModified,
-    changeFrequency: route === "" || route === "/menu" ? "weekly" as const : "monthly" as const,
-    priority: route === "" ? 1 : route === "/menu" ? 0.9 : 0.7,
+    changeFrequency: route.changeFrequency,
+    priority: route.priority,
   }));
 
   let dishEntries: MetadataRoute.Sitemap = [];
@@ -28,8 +49,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly" as const,
       priority: 0.8,
     }));
-  } catch {
-    // DB unavailable during build — return static entries only
+  } catch (error) {
+    // DB unavailable during build — serve static entries, but surface the failure.
+    console.warn(
+      "[sitemap] Dish query failed; returning static routes only.",
+      error,
+    );
   }
 
   return [...staticEntries, ...dishEntries];

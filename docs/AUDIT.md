@@ -103,6 +103,10 @@ inventory and idempotency are enforced in one place. See **Phase 1 / Phase 5**.
 
 ### P0-2 · Production state lives in process memory
 
+> **Update (W4):** the Redis decision is made and enforced: production boot fails (`lib/config/env.ts`, run from `instrumentation.ts` and `server/api.ts`) unless Upstash is configured or `ALLOW_IN_MEMORY_STATE=true` is set as an explicit waiver; order routes honour the same waiver. The realtime bus remains per-process (Redis pub/sub still open).
+>
+> **PARTIALLY RESOLVED (Phase 3).** Order receipts now go through a durable Postgres outbox (`OutboxEvent`, `lib/outbox/`), written in the order transaction and drained by `/api/cron/outbox` + an `after()` drain. **Remaining:** the in-memory realtime bus, rate-limit store and cache fallback are still per-process; the decision to make Redis a hard production dependency (fail closed) is open. Webhook/KDS jobs on `globalJobQueue` (Express runtime) are not yet on the outbox.
+
 **Location:** `lib/realtime/bus.ts:24`, `lib/queue/job-queue.ts:26,83`,
 `lib/rate-limit/limiter.ts:12`, `lib/cache/cache-manager.ts:11`
 
@@ -140,6 +144,13 @@ worker; replace the event bus with Redis pub/sub.
 ---
 
 ### P0-3 · `tenantId` is nullable and tenant resolution fails open
+
+> **Partly resolved 2026-10-21.** `resolveTenant` now throws `TenantResolutionError` (no silent
+> default; production requires `ALLOW_DEFAULT_TENANT=true` or an explicit slug), and
+> `Order.tenantId` is `NOT NULL` (migration `20261021120000_tenant_hardening`). **Open:** the
+> `OR: [{ tenantId }, { tenantId: null }]` reads in `app/api/v1/orders/[id]/route.ts` and
+> `server/app.ts` no longer type-check and must drop the null branch; `tenantId` on Category, Dish,
+> Reservation, etc. stays nullable; RLS and a tenant cache are not done.
 
 **Location:** `prisma/schema.prisma` (all tenant-scoped models),
 `lib/db/tenant.ts:54–67`
@@ -265,7 +276,10 @@ never sent.
 **both** branches, so the allowlist is decorative while
 `credentials: true` is set. ~~`allowedHeaders` also omits `Idempotency-Key`,
 which the middleware expects.~~ **Fixed in Phase 1** — the header is now
-allowed. **Remaining fix:** the open origin callback, Phase 4.
+allowed. **Resolved in Phase 4:** `server/middleware/cors.ts` builds an explicit allow-list from
+`APP_URL`, `CLIENT_URL` and `ALLOWED_ORIGINS`; a wildcard is never honoured, unknown origins get
+no CORS headers, localhost is added outside production only. Covered by
+`tests/security/phase4-hardening.test.ts`.
 
 ### P1-2 · No connection-pool bounds; serverless will exhaust Postgres
 `lib/db/prisma.ts:8` — `new PrismaPg({ connectionString })` with no `max`, no
@@ -277,6 +291,8 @@ lambda instance opens its own pool against a default `max_connections`.
 `lib/cache/cache-manager.ts:138` — `fetch(\`${UPSTASH_URL}/keys/${prefix}*\`)`.
 `KEYS` scans the entire keyspace and blocks Redis. **Fix:** `SCAN` cursors, or
 better, versioned key prefixes. Phase 3.
+
+> **CLOSED:** `deleteByPrefix` uses cursor `SCAN` + batched `DEL` (no `KEYS`).
 
 ### P1-4 · Idempotency key is not bound to the request payload
 `lib/resilience/idempotency.ts:54` — `acquire(key)`. Reusing a key with a
@@ -294,6 +310,9 @@ the key so replay survives a cache flush) and Phase 1 (align Express).
 multiplying write load and creating lock contention. **Fix:** sample or debounce
 (e.g. only when older than 60 s). Phase 4.
 
+> **Resolved in Phase 4.** `shouldRecordUse` writes `lastUsedAt` at most once per 60 s per key
+> (stored value plus an in-process guard).
+
 ### P1-6 · `verifyS2SRequest` constant-time comparison is theatrical
 `lib/auth/s2s.ts:101–105` — the values compared were already matched by
 `findUnique({ where: { keyHash: tokenHash } })`, so `timingSafeEqual` here
@@ -301,11 +320,42 @@ defends nothing while documentation claims it "prevents side-channel timing
 leaks". Harmless but inaccurately documented. **Fix:** correct the claim and
 keep the lookup (which is already constant-time by construction). Phase 4.
 
+> **Resolved in Phase 4.** The comment now states the lookup is by hash, and `digestsMatch`
+> compares the raw equal-length SHA-256 digests with `crypto.timingSafeEqual` as defence in depth.
+
 ### P1-7 · Money precision: `Number()` and float arithmetic
-`server/api.ts:118`, `app/api/v1/orders/route.ts:93`, `:140` — `Number(d.price)`
+
+> **D1 resolved 2026-10-21:** `Tenant.taxRatePercent` / `Tenant.currency` exist and `createOrder`
+> passes the order's tenant to `resolveTaxRatePercent`. Currency is stored but not yet used by formatting.
+`server/api.ts:118`, `app/api/v1/orders/route.ts:93`, `:140` - `Number(d.price)`
 and `reduce(sum + price * qty)` on IEEE-754 floats. Rounding drift across a
 discount, a tip and a tax is real. **Fix:** integer minor units or `Decimal`
 arithmetic throughout the pricing path. Phase 2.
+
+> **Resolved 2026-10-15 (money).** `lib/money/` now owns all money arithmetic in
+> integer minor units (paise) with one half-up rounding primitive; conversion to
+> the `Decimal(10,2)` column happens only at the database boundary, as an exact
+> fixed-point string. The tax rate is configuration (`config/pricing.ts`,
+> `TAX_RATE_PERCENT`, default 5) instead of the literal `0.05` — **`0.05` no
+> longer appears in any application code**.
+>
+> Two further defects surfaced while fixing it, both now closed:
+>
+> - The **checkout page** computed its own total with `Math.round(subtotal * 0.05)`
+>   in whole rupees, so a ₹10 order displayed ₹11 while the API charged ₹10.50.
+>   Both sides now call the single rule in `lib/money/cart.ts`, and the page gets
+>   the resolved rate from a server shell (`app/(public)/checkout/page.tsx`), so a
+>   configured rate cannot desync the display from the charge.
+> - A modifier whose `priceDelta` was not a number produced `NaN` through
+>   `Math.max(0, Number(m.priceDelta))`, silently corrupting the order total. An
+>   unreadable delta is now zero.
+>
+> Covered by `tests/unit/money.test.ts` (25 cases) and DB-backed assertions in
+> `tests/unit/order-pricing.test.ts`.
+>
+> **Still open, and deliberately so:** the rate is still global —
+> `Tenant` has no tax column and `Setting` is global, so a per-tenant rate is
+> Phase 2 work (see `plans/phase-1-completion.md` D1).
 
 ### P1-8 · `Order` has no idempotency key persisted and no tenant-scoped uniqueness
 `prisma/schema.prisma:317` — `orderNumber @unique` is global. `(tenantId,
@@ -329,6 +379,10 @@ creation. This bypasses the S2S scoping that guards every other `/api/v1/*` rout
 **Fix:** Phase 4 — require a session or a signed, short-lived token; make a read path never
 create records; rate-limit by IP.
 
+> **Resolved in Phase 4** (verified). The route requires email plus an order number belonging to
+> that email (proof of purchase), is rate limited per client (10 per 10 min), validates both with
+> zod, never creates customers, and answers unknown email and wrong order identically.
+
 ---
 
 ## 5. 🟡 Medium findings (P2)
@@ -341,8 +395,8 @@ create records; rate-limit by IP.
 | P2-4 | **Four domain contexts have no `tenantId` at all**: `GalleryImage`, `ContactMessage`, `Review`, `Setting` — they leak across tenants by construction. `Coupon` likewise. | `schema.prisma:237, 252, 418, 283, 435` | 2 |
 | P2-5 | **Globally-unique columns block multi-tenancy**: `Category.slug`, `Dish.slug`, `Coupon.code`, `Setting.key`, `Admin.email` are `@unique` globally, so two tenants cannot both have a "paneer-tikka" or a "SILVER" setting key. | `schema.prisma:181, 203, 437, 285, 146` | 2 |
 | P2-6 | **`resolveTenant` / `getOrCreateDefaultTenant` cache-free and write-capable on read paths**, including every SSE connect. | `lib/db/tenant.ts:17–49`, `realtime/kds/route.ts:39` | 2 |
-| P2-7 | **Job queue metrics are meaningless under concurrency**: `processing: this.isProcessing ? 1 : 0` can never exceed 1, and `completedCount`/`failedCount` reset per process. | `lib/queue/job-queue.ts:148–152` | 3 |
-| P2-8 | **KDS broadcast tenant key can be a slug, not a UUID**: `tenantId: order.tenantId \|\| "spice-saffron"` publishes to channel `tenant:spice-saffron`, while subscribers register with a UUID ⇒ the event is never delivered. | `server/api.ts:287` vs `realtime/kds/route.ts:40` | 2 |
+| P2-7 | **Job queue metrics are meaningless under concurrency**: `processing: this.isProcessing ? 1 : 0` can never exceed 1, and `completedCount`/`failedCount` reset per process. | `lib/queue/job-queue.ts:148–152` | 3 (**closed**: real processing counter, cumulative completed/failed incl. missing-handler failures) |
+| P2-8 | **KDS broadcast tenant key can be a slug, not a UUID**: `tenantId: order.tenantId \|\| "spice-saffron"` publishes to channel `tenant:spice-saffron`, while subscribers register with a UUID ⇒ the event is never delivered. | `server/api.ts:287` vs `realtime/kds/route.ts:40` | 2 (**closed**: `server/app.ts` publishes `order.tenantId` UUID, no slug fallback) |
 | P2-9 | **The entire Express API surface is untested.** 31 test files cover Next.js and `lib/`; nothing covers `server/api.ts` (menu, orders, coupons, SSE, webhook, metrics). | `tests/**` inventory | 5 |
 | P2-10 | **JSON-LD is hardcoded and duplicates config**: `app/layout.tsx:43–76` restates the street address, postcode, phone and hours that already live in `config/site.ts` — two sources of truth that will drift. | `app/layout.tsx:55–72` | 6 |
 | P2-11 | **No coverage instrumentation or gate**; `vitest.config.ts` has no `coverage` block and `@vitest/coverage-v8` is not installed. Coverage is unknown. | `vitest.config.ts` | 5 |
@@ -350,6 +404,19 @@ create records; rate-limit by IP.
 ---
 
 ## 6. 🔵 Low findings (P3)
+
+> **P2 status 2026-10-21:** P2-1, P2-2, P2-3 closed by `20261020185037_add_perf_indexes` (no new
+> migration needed). P2-4 (tenantId on GalleryImage/ContactMessage/Review/Setting/Coupon), P2-5
+> (per-tenant unique slugs/keys) and P2-6 (tenant lookup cache, write-on-read) remain open.
+>
+> **P2 status 2026-10-23:** P2-4, P2-5 and P2-6 closed. Migrations `20261023090000_tenant_scope_remaining`
+> (tenantId NOT NULL + FK RESTRICT on GalleryImage, ContactMessage, Review, Setting, Coupon, and on
+> Category/Dish), `20261023100000_per_tenant_uniques` (`Category`/`Dish` `(tenantId, slug)`, `Coupon`
+> `(tenantId, code)`, `Setting` `(tenantId, key)`; `Admin.email` deliberately stays global) and
+> `20261023110000_tenant_plan_tier`. `lib/db/tenant.ts` caches slug/id lookups for 60 s with explicit
+> invalidation (`updateTenant`), and only `getOrCreateDefaultTenant` (dev / opt-in default tenant) can write.
+> Deferred: tenant-scoping of the remaining unscoped admin mutations by id (`updateDish`, `deleteDish`,
+> `toggleDish*`, `reorderDishes`, category update/delete) and of the dish lookup inside `createOrder`.
 
 | # | Finding | Evidence |
 | :-- | :--- | :--- |

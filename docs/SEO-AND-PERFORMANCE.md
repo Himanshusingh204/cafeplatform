@@ -18,6 +18,20 @@
 
 ---
 
+## 0. Status update (Phase 6, W2)
+
+| Item | Status |
+| :-- | :-- |
+| P1-9 image weight: every page asset under 200 KB (largest 151 KB); screenshots under their 400 KB ceiling (largest 291 KB) | Closed |
+| P2-10 JSON-LD only from `config/site.ts` via `lib/seo/jsonld.ts`; no duplicated address, phone or hours in `app/layout.tsx` | Closed |
+| FAQPage, MenuItem and BreadcrumbList built with typed builders and `<` escaping; unit tested | Closed |
+| WebSite SearchAction | Not applicable: no search route exists |
+| Metadata (canonical, Open Graph, Twitter) on every public page; noindex on checkout, order and admin | Closed |
+| Sitemap includes dish slugs from the DB | Closed |
+| Fonts via `next/font` with `display: "swap"`; no third-party scripts | Closed |
+| Lazy-loading the cart drawer with `next/dynamic` | Deferred: it is mounted from a Server Component layout, where `ssr: false` is not allowed; needs a client wrapper |
+| Per-route `opengraph-image` for dishes | Open |
+
 ## Table of contents
 
 1. [Executive summary](#1-executive-summary)

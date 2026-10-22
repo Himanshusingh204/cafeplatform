@@ -1,3 +1,4 @@
+import { apiError } from "@/lib/api/errors";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
@@ -6,6 +7,22 @@ import { broadcastEvent } from "@/lib/realtime/bus";
 import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
 
 export const dynamic = "force-dynamic";
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+/** Hard cap so a single request cannot dump the whole reservations table. */
+const RESERVATIONS_LIST_MAX = 500;
+
+/**
+ * Parse a `YYYY-MM-DD` string as UTC midnight, rejecting impossible calendar
+ * dates (e.g. 2026-02-31) that `Date` would otherwise silently roll over.
+ */
+function parseDateOnly(value: string): Date | null {
+  if (!DATE_ONLY_PATTERN.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.toISOString().slice(0, 10) !== value) return null;
+  return parsed;
+}
 
 const createReservationSchema = z.object({
   name: z.string().min(2).max(100),
@@ -24,19 +41,32 @@ const createReservationSchema = z.object({
 export async function GET(request: Request) {
   const auth = await verifyS2SRequest(request, "reservations:read");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
   const { searchParams } = new URL(request.url);
-  const dateStr = searchParams.get("date");
+  const rawDate = searchParams.get("date");
+  // Default to today rather than dumping the entire collection.
+  const dateStr = rawDate === null || rawDate.trim() === ""
+    ? new Date().toISOString().slice(0, 10)
+    : rawDate.trim();
+
+  const date = parseDateOnly(dateStr);
+  if (!date) {
+    return apiError(400, "Invalid date. Expected a real calendar date in YYYY-MM-DD format.");
+  }
+
   const tenantId = auth.context.tenantId;
 
   const reservations = await db.reservation.findMany({
     where: {
-      OR: [{ tenantId }, { tenantId: null }],
-      ...(dateStr ? { date: new Date(dateStr) } : {}),
+      // Strict tenant equality: legacy rows with a null tenantId are not
+      // readable through a tenant-scoped API key.
+      tenantId,
+      date,
     },
     orderBy: { date: "asc" },
+    take: RESERVATIONS_LIST_MAX,
   });
 
   return NextResponse.json({
@@ -53,22 +83,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await verifyS2SRequest(request, "reservations:write");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return apiError(400, "Invalid JSON payload");
   }
 
   const parsed = createReservationSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
-      { status: 422 }
-    );
+    return apiError(422, "Validation failed", undefined, { details: parsed.error.flatten().fieldErrors });
   }
 
   const data = parsed.data;

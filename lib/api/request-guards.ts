@@ -27,7 +27,9 @@ export function hasDistributedBackend(): boolean {
  * instead of silently shipping a duplicate-order bug.
  */
 export function requiresDistributedBackend(): boolean {
-  return process.env.NODE_ENV === "production" && !hasDistributedBackend();
+  if (process.env.NODE_ENV !== "production" || hasDistributedBackend()) return false;
+  // ALLOW_IN_MEMORY_STATE=true is a deliberate, documented waiver (single-instance deploys).
+  return process.env.ALLOW_IN_MEMORY_STATE?.trim().toLowerCase() !== "true";
 }
 
 /**

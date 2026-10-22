@@ -6,6 +6,7 @@ import { permissions } from "@/config/roles";
 import { rateLimit } from "@/lib/rate-limit/limiter";
 import { limits } from "@/config/limits";
 import { categoryInputSchema } from "@/lib/validation/schemas";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/services/menu";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
@@ -36,7 +37,7 @@ export async function saveCategoryAction(input: Record<string, unknown>): Promis
     if (id) {
       await updateCategory(id, { ...parsed.data, actorId: admin.id });
     } else {
-      await createCategory({ ...parsed.data, actorId: admin.id });
+      await createCategory({ ...parsed.data, tenantId: await getAdminTenantId(admin), actorId: admin.id });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

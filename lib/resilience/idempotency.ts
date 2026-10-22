@@ -24,6 +24,8 @@ interface IdempotencyRecord {
 
 const memRecords = new Map<string, IdempotencyRecord>();
 const MAX_MEM_RECORDS = 5000;
+// An in-flight marker is a lock: a crashed request must not block its key for the full 24h.
+const LOCK_TTL_SECONDS = 120;
 
 function pruneMemoryRecords(now: number) {
   if (memRecords.size < MAX_MEM_RECORDS) return;
@@ -82,7 +84,7 @@ export class IdempotencyManager {
         const setNxRes = await fetch(
           `${UPSTASH_URL}/set/${encodeURIComponent(fullKey)}/${encodeURIComponent(
             JSON.stringify({ status: "PROCESSING", timestamp: now })
-          )}?nx&ex=${ttlSeconds}`,
+          )}?nx&ex=${Math.min(ttlSeconds, LOCK_TTL_SECONDS)}`,
           {
             method: "POST",
             headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
@@ -116,7 +118,7 @@ export class IdempotencyManager {
     // Acquire lock
     memRecords.set(fullKey, {
       status: "PROCESSING",
-      expiresAt: now + ttlSeconds * 1000,
+      expiresAt: now + Math.min(ttlSeconds, LOCK_TTL_SECONDS) * 1000,
     });
 
     return { status: "acquired" };

@@ -1,23 +1,23 @@
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { db } from "@/lib/db/prisma";
-import { getOrCreateDefaultTenant } from "@/lib/db/tenant";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { DeveloperPortal, ApiKeyItem, WebhookItem } from "@/components/admin/developer-portal";
 
 export const dynamic = "force-dynamic";
 
 export default async function DevelopersPage() {
-  await requirePermission(permissions.MANAGE_SETTINGS);
+  const admin = await requirePermission(permissions.MANAGE_SETTINGS);
 
-  const tenant = await getOrCreateDefaultTenant();
+  const tenantId = await getAdminTenantId(admin);
 
   const [rawKeys, rawWebhooks] = await Promise.all([
     db.apiKey.findMany({
-      where: { tenantId: tenant.id },
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
     }),
     db.webhookSubscription.findMany({
-      where: { tenantId: tenant.id },
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
     }),
   ]);
@@ -42,7 +42,11 @@ export default async function DevelopersPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-      <DeveloperPortal apiKeys={apiKeys} webhooks={webhooks} />
+      <DeveloperPortal
+        apiKeys={apiKeys}
+        webhooks={webhooks}
+        canManage={hasPermission(admin.role, permissions.MANAGE_SETTINGS)}
+      />
     </div>
   );
 }

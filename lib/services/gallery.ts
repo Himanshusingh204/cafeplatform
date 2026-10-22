@@ -3,12 +3,14 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
+import { resolveTenant } from "@/lib/db/tenant";
+import { assertWithinPlan } from "@/lib/plans";
 import type { GalleryCategory } from "@/lib/generated/prisma/enums";
 
-async function fetchPublishedGallery() {
+async function fetchPublishedGallery(tenantId: string) {
   try {
     const images = await db.galleryImage.findMany({
-      where: { isPublished: true },
+      where: { tenantId, isPublished: true },
       orderBy: { sortOrder: "asc" },
       select: {
         id: true,
@@ -30,13 +32,13 @@ export const getGalleryCached = unstable_cache(fetchPublishedGallery, ["gallery"
   revalidate: 300,
 });
 
-export async function getPublishedGallery() {
-  return getGalleryCached();
+export async function getPublishedGallery(tenantId?: string) {
+  return getGalleryCached(tenantId ?? (await resolveTenant()).id);
 }
 
-export async function listGalleryAdmin() {
+export async function listGalleryAdmin(tenantId: string) {
   try {
-    return await db.galleryImage.findMany({ orderBy: { sortOrder: "asc" } });
+    return await db.galleryImage.findMany({ where: { tenantId }, orderBy: { sortOrder: "asc" } });
   } catch {
     return [];
   }
@@ -44,6 +46,7 @@ export async function listGalleryAdmin() {
 
 export async function createGalleryImage(
   input: {
+    tenantId: string;
     title: string;
     altText: string;
     imageUrl: string;
@@ -53,8 +56,11 @@ export async function createGalleryImage(
     actorId?: string | null;
   }
 ) {
+  await assertWithinPlan(input.tenantId, "galleryImages");
+
   const image = await db.galleryImage.create({
     data: {
+      tenantId: input.tenantId,
       title: input.title,
       altText: input.altText,
       imageUrl: input.imageUrl,
@@ -78,6 +84,7 @@ export async function createGalleryImage(
 export async function updateGalleryImage(
   id: string,
   input: {
+    tenantId: string;
     title: string;
     altText: string;
     imageUrl?: string;
@@ -87,7 +94,7 @@ export async function updateGalleryImage(
     actorId?: string | null;
   }
 ) {
-  const existing = await db.galleryImage.findUnique({ where: { id } });
+  const existing = await db.galleryImage.findFirst({ where: { id, tenantId: input.tenantId } });
   if (!existing) throw new Error("NOT_FOUND");
 
   const image = await db.galleryImage.update({
@@ -113,8 +120,8 @@ export async function updateGalleryImage(
   return image;
 }
 
-export async function deleteGalleryImage(id: string, actorId?: string | null) {
-  const existing = await db.galleryImage.findUnique({ where: { id } });
+export async function deleteGalleryImage(id: string, tenantId: string, actorId?: string | null) {
+  const existing = await db.galleryImage.findFirst({ where: { id, tenantId } });
   if (!existing) throw new Error("NOT_FOUND");
 
   await db.galleryImage.delete({ where: { id } });

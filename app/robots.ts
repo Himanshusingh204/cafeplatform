@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
+import { baseUrl } from "@/lib/seo/jsonld";
 
 export default function robots(): MetadataRoute.Robots {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const appUrl = baseUrl();
 
   return {
     rules: [
@@ -12,5 +13,6 @@ export default function robots(): MetadataRoute.Robots {
       },
     ],
     sitemap: `${appUrl}/sitemap.xml`,
+    host: appUrl,
   };
 }

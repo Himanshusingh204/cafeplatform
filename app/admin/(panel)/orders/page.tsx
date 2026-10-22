@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { permissions, hasPermission } from "@/config/roles";
 import { listOrdersAdmin, getOrderStats } from "@/lib/services/orders";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { formatPrice } from "@/lib/utils/format";
 import { OrderManager } from "@/components/admin/order-manager";
 import type { OrderStatus } from "@/lib/generated/prisma/enums";
@@ -14,16 +15,18 @@ interface OrdersPageProps {
 }
 
 export default async function AdminOrdersPage({ searchParams }: OrdersPageProps) {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
   const query = await searchParams;
   const statusParam = typeof query.status === "string" ? (query.status as OrderStatus) : undefined;
 
+  const tenantId = await getAdminTenantId(admin);
   const [data, stats] = await Promise.all([
     listOrdersAdmin({
       status: statusParam,
       pageSize: 50,
+      tenantId,
     }),
-    getOrderStats(),
+    getOrderStats(tenantId),
   ]);
 
   return (
@@ -52,6 +55,7 @@ export default async function AdminOrdersPage({ searchParams }: OrdersPageProps)
       </div>
 
       <OrderManager
+        canManage={hasPermission(admin.role, permissions.MANAGE_ORDERS)}
         orders={data.items.map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,

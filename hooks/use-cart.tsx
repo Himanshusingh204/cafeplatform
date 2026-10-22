@@ -23,6 +23,8 @@ export interface CartItem {
 
 interface CartContextType {
   items: CartItem[];
+  /** False during the first render so cart-dependent UI can avoid hydration mismatches. */
+  hydrated: boolean;
   isOpen: boolean;
   openCart: () => void;
   closeCart: () => void;
@@ -49,8 +51,22 @@ function readCartFromStorage(): CartItem[] {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = React.useState<CartItem[]>(() => readCartFromStorage());
+  // Always start empty so the server and the first client render agree. The
+  // stored cart is merged in after mount, which is also when persistence
+  // becomes safe (we must not overwrite storage before reading it).
+  const [items, setItems] = React.useState<CartItem[]>([]);
+  const [hydrated, setHydrated] = React.useState(false);
   const [isOpen, setIsOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    // One-time hydration from localStorage. There is no render-time equivalent:
+    // the server cannot read storage, so the first client render must match the
+    // server's empty cart and only then adopt the stored one.
+    /* eslint-disable react-hooks/set-state-in-effect -- one-time storage hydration */
+    setItems((prev) => (prev.length > 0 ? prev : readCartFromStorage()));
+    setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
 
   const persist = React.useCallback((nextItems: CartItem[]) => {
     try {
@@ -126,6 +142,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     <CartContext.Provider
       value={{
         items,
+        hydrated,
         isOpen,
         openCart,
         closeCart,

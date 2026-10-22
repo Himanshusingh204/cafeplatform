@@ -135,12 +135,19 @@ export class CacheManager {
 
     if (hasUpstash) {
       try {
-        const keysRes = await fetch(`${UPSTASH_URL}/keys/${encodeURIComponent(targetPrefix + "*")}`, {
-          headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-        });
-        if (keysRes.ok) {
-          const keysData = await keysRes.json();
-          const keys: string[] = keysData.result || [];
+        // Cursor-based SCAN, never KEYS (KEYS is O(N) and blocks the server).
+        const match = targetPrefix.replace(/[\*?[\]]/g, "\\$&") + "*";
+        let cursor = "0";
+        let guard = 0;
+        do {
+          const res = await fetch(
+            `${UPSTASH_URL}/scan/${cursor}/match/${encodeURIComponent(match)}/count/200`,
+            { headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } }
+          );
+          if (!res.ok) break;
+          const body = await res.json();
+          const [next, keys] = (body.result ?? ["0", []]) as [string | number, string[]];
+          cursor = String(next);
           if (keys.length > 0) {
             await fetch(`${UPSTASH_URL}/del`, {
               method: "POST",
@@ -151,7 +158,8 @@ export class CacheManager {
               body: JSON.stringify(keys),
             });
           }
-        }
+          guard += 1;
+        } while (cursor !== "0" && guard < 1000);
       } catch (err) {
         console.warn(`[CacheManager] Upstash deleteByPrefix failed for ${targetPrefix}:`, err);
       }

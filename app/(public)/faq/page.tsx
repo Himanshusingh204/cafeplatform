@@ -1,22 +1,24 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { PageHeader } from "@/components/layout/page-header";
 import { FaqAccordion } from "@/components/faq/faq-accordion";
+import { breadcrumbSchema, faqSchema, jsonLdGraph, serializeJsonLd } from "@/lib/seo/jsonld";
 import { getSettings } from "@/lib/services/settings";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "FAQ",
   description:
-    "Answers to common questions — reservations, dietary options, parking, takeaway and more.",
-  alternates: { canonical: "/faq" },
-};
+    "Answers to common questions - reservations, dietary options, parking, takeaway and more.",
+  path: "/faq",
+});
 
 function buildFaqs(phone: string) {
   return [
     {
       q: "Do you take reservations?",
-      a: "Yes — call us and we will hold a table for you. Walk-ins are always welcome, though weekends can fill up quickly between 7 and 9 PM.",
+      a: "Yes - call us and we will hold a table for you. Walk-ins are always welcome, though weekends can fill up quickly between 7 and 9 PM.",
     },
     {
       q: "Do you have vegetarian and vegan options?",
@@ -24,7 +26,7 @@ function buildFaqs(phone: string) {
     },
     {
       q: "How spicy is your food?",
-      a: "Our dishes are seasoned the traditional way. If you prefer things mild, tell your server — most curries can be tempered to suit you.",
+      a: "Our dishes are seasoned the traditional way. If you prefer things mild, tell your server - most curries can be tempered to suit you.",
     },
     {
       q: "Can you cater for allergies?",
@@ -42,7 +44,7 @@ function buildFaqs(phone: string) {
     },
     {
       q: "Do you host private events?",
-      a: "We do — birthdays, team dinners and small celebrations. Send us a message through the contact page with your date and group size.",
+      a: "We do - birthdays, team dinners and small celebrations. Send us a message through the contact page with your date and group size.",
     },
   ];
 }
@@ -51,24 +53,16 @@ export default async function FaqPage() {
   const settings = await getSettings();
   const faqs = buildFaqs(settings.phone);
 
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqs.map((faq) => ({
-      "@type": "Question",
-      name: faq.q,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: faq.a,
-      },
-    })),
-  };
+  const jsonLd = jsonLdGraph(
+    faqSchema(faqs.map((faq) => ({ question: faq.q, answer: faq.a }))),
+    breadcrumbSchema([{ name: "Home", path: "/" }, { name: "FAQ" }]),
+  );
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
       <PageHeader
         title="Frequently asked questions"

@@ -350,34 +350,26 @@ any one commit restores the previous behaviour without a data migration.
 
 ---
 
-## 11. Open questions for review
+## 11. Decisions — resolved
 
-Each has a recommendation; I will proceed with the recommendation unless told otherwise.
+These were the open questions. **All four are now answered**, so this section records the
+outcome rather than a proposal.
 
-**D1 — Tenant-configurable tax: now or Phase 2?**
+**D1 — Tenant-configurable tax: now or Phase 2?** → **Deferred to Phase 2** (owner, 2026-10-15).
 `Tenant` has no tax field and `Setting` is global (F7), so a true per-tenant rate needs a schema
-change — which is exactly what Phase 2 is for.
-→ **Recommendation: defer the column to Phase 2.** This plan makes the *call site* correct and
-configurable now (B2), so Phase 2 only has to add a column and a lookup.
+change — which is exactly what Phase 2 is for. Workstream B makes the *call site* correct and
+configurable now (`config/pricing.ts`), so Phase 2 only has to add a column and a lookup.
 
-**D2 — Does the Express runtime get `POST /api/v1/orders`?**
-The docs sell "one codebase, two runtimes", but Express has no order endpoint (F8) and nothing
-packages it (F2).
-→ **Recommendation: (a) add the thin endpoint**, because a parity claim that is not tested is
-worse than no claim, and the endpoint is ~30 lines over `createOrder`. If you would rather keep
-Phase 1 small, **(b) shrink the claim** is a legitimate answer — say the word and I will do that
-instead.
+**D2 — Does the Express runtime get `POST /api/v1/orders`?** → **Yes, add the thin endpoint**
+(owner, 2026-10-15). A parity claim that is not tested is worse than no claim.
 
-**D3 — Which Vercel plan?**
-It sets the maximum `maxDuration` we may legitimately declare (Hobby 300 s; Pro/Enterprise 800 s).
-→ **Recommendation: declare 300 s now** (works everywhere), and raise it to 800 only after the
-plan is confirmed.
+**D3 — Which Vercel plan?** → **Not yet confirmed.** `maxDuration` is declared at **300**, which
+is legal on every plan. Raise it to 800 only after the plan is confirmed.
 
-**D4 — Do preview deployments have their own database?**
+**D4 — Do preview deployments have their own database?** → **Operator action, not yet confirmed.**
 A1 removes the accidental-migration risk from the repository; it cannot remove it from the
-environment configuration.
-→ **Recommendation: confirm a separate preview `DATABASE_URL`** before the next deploy, and
-record it in `OPERATIONS.md`.
+environment configuration. Verify in Vercel → Settings → Environment Variables before the first
+preview deploy, and record it in `OPERATIONS.md`.
 
 ---
 
@@ -413,6 +405,8 @@ Updated as work lands.
 | `maxDuration` value | `300` on both stream routes | Legal on every plan (Hobby's maximum). Raise to 800 only after the plan is confirmed — D3. |
 | Scope of the SSE fix | Declare + document the cap | The missing `id:` replay is a Phase 3 concern (Redis-backed bus), not a route-file fix. |
 | Extra docs work discovered mid-flight | Fixed | The README API table listed routes that do not exist and omitted the runtime split; the verifier's probes would have been written against a fiction. |
+| D2 — Express `POST /api/v1/orders` | **Add it** (owner, 2026-10-15) | A parity claim that is not tested is worse than no claim. |
+| D1 — tenant tax column | **Deferred to Phase 2** (owner, 2026-10-15) | Phase 2 owns schema work; B makes the call site configurable so only a column and a lookup remain. |
 
 ---
 

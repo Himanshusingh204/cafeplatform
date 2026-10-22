@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { PageHeader } from "@/components/layout/page-header";
 import { getSettings } from "@/lib/services/settings";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Terms & Conditions",
-  description: "The terms that apply when you use this website or visit our café.",
-  alternates: { canonical: "/terms" },
-};
+  description:
+    "The terms that apply when you use this website or visit our café.",
+  path: "/terms",
+});
 
 export default async function TermsPage() {
   const settings = await getSettings();

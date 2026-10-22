@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { listReservationsAdmin, getReservationStats } from "@/lib/services/reservations";
 import { ReservationManager } from "@/components/admin/reservation-manager";
 import type { ReservationStatus } from "@/lib/generated/prisma/enums";
@@ -13,7 +13,7 @@ interface ReservationsPageProps {
 }
 
 export default async function AdminReservationsPage({ searchParams }: ReservationsPageProps) {
-  await requirePermission(permissions.VIEW_MESSAGES);
+  const admin = await requirePermission(permissions.VIEW_MESSAGES);
   const query = await searchParams;
   const statusParam = typeof query.status === "string" ? (query.status as ReservationStatus) : undefined;
 
@@ -51,6 +51,7 @@ export default async function AdminReservationsPage({ searchParams }: Reservatio
       </div>
 
       <ReservationManager
+        canManage={hasPermission(admin.role, permissions.MANAGE_RESERVATIONS)}
         reservations={data.items.map((r) => ({
           id: r.id,
           referenceCode: r.referenceCode,

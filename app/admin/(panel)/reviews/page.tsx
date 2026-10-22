@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { listReviewsAdmin, getReviewStats } from "@/lib/services/reviews";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { ReviewManager } from "@/components/admin/review-manager";
 
 export const metadata: Metadata = { title: "Customer Reviews" };
@@ -12,17 +13,18 @@ interface ReviewsPageProps {
 }
 
 export default async function AdminReviewsPage({ searchParams }: ReviewsPageProps) {
-  await requirePermission(permissions.VIEW_MESSAGES);
+  const admin = await requirePermission(permissions.VIEW_MESSAGES);
+  const tenantId = await getAdminTenantId(admin);
   const query = await searchParams;
   const approvedParam =
     query.status === "approved" ? true : query.status === "pending" ? false : undefined;
 
   const [data, stats] = await Promise.all([
-    listReviewsAdmin({
+    listReviewsAdmin(tenantId, {
       isApproved: approvedParam,
       pageSize: 50,
     }),
-    getReviewStats(),
+    getReviewStats(tenantId),
   ]);
 
   return (
@@ -51,6 +53,7 @@ export default async function AdminReviewsPage({ searchParams }: ReviewsPageProp
       </div>
 
       <ReviewManager
+        canModerate={hasPermission(admin.role, permissions.MODERATE_REVIEWS)}
         reviews={data.items.map((r) => ({
           id: r.id,
           customerName: r.customerName,

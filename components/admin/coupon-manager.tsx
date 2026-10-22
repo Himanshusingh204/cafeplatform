@@ -4,6 +4,7 @@ import * as React from "react";
 import { Tag, Plus, Trash2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { createCouponAction, toggleCouponAction, deleteCouponAction } from "@/app/admin/actions/coupons";
 import { formatPrice } from "@/lib/utils/format";
+import { useConfirm } from "@/components/admin/confirm-dialog";
 
 export interface AdminCoupon {
   id: string;
@@ -17,9 +18,12 @@ export interface AdminCoupon {
 
 interface CouponManagerProps {
   initialCoupons: AdminCoupon[];
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
-export function CouponManager({ initialCoupons }: CouponManagerProps) {
+export function CouponManager({ initialCoupons, canEdit = true, canDelete = true }: CouponManagerProps) {
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const [coupons, setCoupons] = React.useState<AdminCoupon[]>(initialCoupons);
   const [showModal, setShowModal] = React.useState(false);
   const [code, setCode] = React.useState("");
@@ -74,18 +78,37 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
 
   async function handleToggle(id: string, current: boolean) {
     const next = !current;
+    setActionError(null);
     setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: next } : c)));
-    await toggleCouponAction(id, next);
+    const res = await toggleCouponAction(id, next);
+    if (!res.ok) {
+      setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: current } : c)));
+      setActionError(res.error || "The coupon could not be updated.");
+    }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this coupon?")) return;
+    if (!(await confirm({ title: "Delete coupon", message: "This coupon will stop working immediately. This cannot be undone." }))) return;
+    setActionError(null);
+    const snapshot = coupons;
     setCoupons((prev) => prev.filter((c) => c.id !== id));
-    await deleteCouponAction(id);
+    const res = await deleteCouponAction(id);
+    if (!res.ok) {
+      setCoupons(snapshot);
+      setActionError(res.error || "The coupon could not be deleted.");
+    }
   }
+
+  const { confirm, dialog } = useConfirm();
 
   return (
     <div className="space-y-6">
+      {dialog}
+      {actionError && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="heading-display text-2xl font-bold text-foreground">Promo Coupons</h1>
@@ -94,6 +117,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
           </p>
         </div>
 
+        {canEdit && (
         <button
           type="button"
           onClick={() => setShowModal(true)}
@@ -102,6 +126,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
           <Plus className="h-4 w-4" />
           <span>New Coupon</span>
         </button>
+        )}
       </div>
 
       {coupons.length === 0 ? (
@@ -109,7 +134,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
           <Tag className="mx-auto h-8 w-8 text-muted-foreground opacity-40" />
           <h3 className="mt-3 text-sm font-semibold text-foreground">No coupons yet</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Create promotional codes like WELCOME10 or FESTIVE20 to offer discounts to customers.
+            Create promotional codes like WELCOME10 or FESTIVE20 to offer discounts to customers.{canEdit ? " Use the New Coupon button above to add the first one." : ""}
           </p>
         </div>
       ) : (
@@ -150,6 +175,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
                     <td className="px-5 py-4">
                       <button
                         type="button"
+                        disabled={!canEdit}
                         onClick={() => handleToggle(c.id, c.isActive)}
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                           c.isActive
@@ -169,6 +195,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
                       </button>
                     </td>
                     <td className="px-5 py-4 text-right">
+                      {canDelete && (
                       <button
                         type="button"
                         onClick={() => handleDelete(c.id)}
@@ -177,6 +204,7 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -210,8 +238,9 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
 
             <form onSubmit={handleCreate} className="space-y-4 text-xs">
               <div>
-                <label className="font-medium text-foreground block mb-1">Coupon Code *</label>
+                <label htmlFor="coupon-code" className="font-medium text-foreground block mb-1">Coupon Code *</label>
                 <input
+                  id="coupon-code"
                   type="text"
                   required
                   placeholder="e.g. SPICE20"
@@ -222,8 +251,9 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
               </div>
 
               <div>
-                <label className="font-medium text-foreground block mb-1">Discount Percentage (%) *</label>
+                <label htmlFor="coupon-discount" className="font-medium text-foreground block mb-1">Discount Percentage (%) *</label>
                 <input
+                  id="coupon-discount"
                   type="number"
                   min={1}
                   max={100}
@@ -235,8 +265,9 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
               </div>
 
               <div>
-                <label className="font-medium text-foreground block mb-1">Minimum Order Amount (₹, optional)</label>
+                <label htmlFor="coupon-min-order" className="font-medium text-foreground block mb-1">Minimum Order Amount (₹, optional)</label>
                 <input
+                  id="coupon-min-order"
                   type="number"
                   min={0}
                   placeholder="e.g. 500"
@@ -247,8 +278,9 @@ export function CouponManager({ initialCoupons }: CouponManagerProps) {
               </div>
 
               <div>
-                <label className="font-medium text-foreground block mb-1">Expiration Date (optional)</label>
+                <label htmlFor="coupon-valid-until" className="font-medium text-foreground block mb-1">Expiration Date (optional)</label>
                 <input
+                  id="coupon-valid-until"
                   type="date"
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}

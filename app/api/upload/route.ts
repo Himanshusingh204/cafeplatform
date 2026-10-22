@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { checkOrigin } from "@/lib/api/request";
 import { getSession } from "@/lib/auth/session";
 import { getStorageDriver, isStorageConfigured } from "@/lib/storage";
 import { buildStorageKey, processUpload } from "@/lib/storage/image";
@@ -21,6 +22,10 @@ const ALLOWED_FOLDERS = new Set(["dishes", "gallery", "brand"]);
  * `next/image`. When storage is not configured the request fails with 503.
  */
 export async function POST(req: NextRequest) {
+  if (!(await checkOrigin(req))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const admin = await getSession();
   if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -76,7 +81,7 @@ export async function POST(req: NextRequest) {
       height,
     });
   } catch (error) {
-    console.error("Image upload error:", error);
+    console.error("Image upload error:", error instanceof Error ? error.name : "unknown");
     return NextResponse.json(
       { error: "Failed to upload image. Please try again." },
       { status: 500 }

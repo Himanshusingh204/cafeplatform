@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { getInventoryList } from "@/lib/services/inventory";
 import { db } from "@/lib/db/prisma";
 import { InventoryManager } from "@/components/admin/inventory-manager";
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Inventory & Auto-86" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminInventoryPage() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
 
   const [rawIngredients, rawDishes] = await Promise.all([
     getInventoryList(),
@@ -41,5 +41,11 @@ export default async function AdminInventoryPage() {
     station: d.station,
   }));
 
-  return <InventoryManager initialIngredients={ingredients} dishes={dishes} />;
+  return (
+    <InventoryManager
+      initialIngredients={ingredients}
+      dishes={dishes}
+      canEdit={hasPermission(admin.role, permissions.EDIT_MENU)}
+    />
+  );
 }

@@ -4,6 +4,7 @@ import { listDishesAdmin, listCategoriesAdmin } from "@/lib/services/menu";
 import { hasPermission, permissions } from "@/config/roles";
 import { requirePermission } from "@/lib/auth/guards";
 import { listQuerySchema } from "@/lib/validation/schemas";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 
 export const metadata: Metadata = { title: "Dishes" };
 
@@ -28,8 +29,10 @@ export default async function AdminDishesPage({ searchParams }: DishesPageProps)
 
   const filters = parsed.success ? parsed.data : listQuerySchema.parse({});
 
+  const tenantId = await getAdminTenantId(admin);
   const [rows, categories] = await Promise.all([
     listDishesAdmin({
+      tenantId,
       search: filters.search,
       category: filters.category,
       featured: filters.featured,
@@ -39,7 +42,7 @@ export default async function AdminDishesPage({ searchParams }: DishesPageProps)
       page: 1,
       pageSize: 200,
     }),
-    listCategoriesAdmin(),
+    listCategoriesAdmin(tenantId),
   ]);
 
   const dishes: AdminDishRow[] = rows.items.map((dish) => ({
@@ -123,6 +126,8 @@ export default async function AdminDishesPage({ searchParams }: DishesPageProps)
       <DishManager
         dishes={dishes}
         categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        canCreate={hasPermission(admin.role, permissions.CREATE_MENU)}
+        canEdit={hasPermission(admin.role, permissions.EDIT_MENU)}
         canDelete={hasPermission(admin.role, permissions.DELETE_MENU)}
       />
     </div>

@@ -7,14 +7,16 @@ import {
   listGalleryAdmin,
   updateGalleryImage,
 } from "@/lib/services/gallery";
-import { makeAdmin, truncateTables, uniqueSuffix } from "../helpers/db";
+import { makeAdmin, testTenantId, truncateTables, uniqueSuffix } from "../helpers/db";
 
 let testAdminId: string;
+let tenantId: string;
 
 beforeAll(async () => {
   await truncateTables("ActivityLog", "GalleryImage", "Admin");
   const admin = await makeAdmin();
   testAdminId = admin.id;
+  tenantId = await testTenantId();
 });
 
 afterAll(async () => {
@@ -24,6 +26,7 @@ afterAll(async () => {
 function galleryInput(overrides: Partial<{ title: string; category: "FOOD" | "INTERIOR" | "CHEF" | "EVENTS" | "ATMOSPHERE" }> = {}) {
   const suffix = uniqueSuffix();
   return {
+    tenantId,
     title: overrides.title ?? `Gallery Image ${suffix}`,
     altText: `Alt text for image ${suffix}`,
     imageUrl: `/images/placeholders/gallery-${suffix}.jpg`,
@@ -55,7 +58,7 @@ describe("gallery CRUD", () => {
     const input = galleryInput({ title: `Admin List ${uniqueSuffix()}` });
     await createGalleryImage(input);
 
-    const images = await listGalleryAdmin();
+    const images = await listGalleryAdmin(tenantId);
     expect(images.length).toBeGreaterThan(0);
     expect(images.some((img) => img.title === input.title)).toBe(true);
   });
@@ -63,6 +66,7 @@ describe("gallery CRUD", () => {
   it("updates a gallery image", async () => {
     const created = await createGalleryImage(galleryInput());
     const updated = await updateGalleryImage(created.id, {
+      tenantId,
       title: `Updated Title ${uniqueSuffix()}`,
       altText: "Updated alt text",
       category: "INTERIOR",
@@ -84,6 +88,7 @@ describe("gallery CRUD", () => {
   it("throws NOT_FOUND when updating non-existent image", async () => {
     await expect(
       updateGalleryImage("00000000-0000-0000-0000-000000000000", {
+        tenantId,
         title: "Test",
         altText: "Test",
         category: "FOOD",
@@ -95,9 +100,9 @@ describe("gallery CRUD", () => {
 
   it("deletes a gallery image", async () => {
     const created = await createGalleryImage(galleryInput());
-    await deleteGalleryImage(created.id, testAdminId);
+    await deleteGalleryImage(created.id, tenantId, testAdminId);
 
-    const images = await listGalleryAdmin();
+    const images = await listGalleryAdmin(tenantId);
     expect(images.some((img) => img.id === created.id)).toBe(false);
 
     const log = await db.activityLog.findFirst({
@@ -108,7 +113,7 @@ describe("gallery CRUD", () => {
 
   it("throws NOT_FOUND when deleting non-existent image", async () => {
     await expect(
-      deleteGalleryImage("00000000-0000-0000-0000-000000000000")
+      deleteGalleryImage("00000000-0000-0000-0000-000000000000", tenantId)
     ).rejects.toThrow("NOT_FOUND");
   });
 
@@ -117,6 +122,7 @@ describe("gallery CRUD", () => {
     const originalUrl = created.imageUrl;
 
     const updated = await updateGalleryImage(created.id, {
+      tenantId,
       title: "New Title",
       altText: "New Alt",
       category: "CHEF",

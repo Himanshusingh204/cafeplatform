@@ -5,6 +5,8 @@ import { db } from "@/lib/db/prisma";
 import { ensureUniqueSlug, slugify } from "@/lib/utils/slugify";
 import { logAction } from "@/lib/services/audit";
 import { globalCache } from "@/lib/cache/cache-manager";
+import { assertWithinPlan } from "@/lib/plans";
+import { resolveTenant } from "@/lib/db/tenant";
 
 // ---------------------------------------------------------------------------
 // Public queries (cached with revalidation tag "menu")
@@ -116,14 +118,14 @@ function toPublicDish(dish: DishSelect): PublicDish {
   };
 }
 
-async function fetchMenu(): Promise<PublicCategory[]> {
+async function fetchMenu(tenantId: string): Promise<PublicCategory[]> {
   try {
     const categories = await db.category.findMany({
-      where: { isActive: true, deletedAt: null },
+      where: { tenantId, isActive: true, deletedAt: null },
       orderBy: { sortOrder: "asc" },
       include: {
         dishes: {
-          where: { isAvailable: true, deletedAt: null },
+          where: { tenantId, isAvailable: true, deletedAt: null },
           orderBy: { sortOrder: "asc" },
           select: {
             id: true,
@@ -176,14 +178,15 @@ export const getMenuCached = unstable_cache(fetchMenu, ["menu"], {
   revalidate: 300,
 });
 
-export async function getMenu(): Promise<PublicCategory[]> {
-  return getMenuCached();
+export async function getMenu(tenantId?: string): Promise<PublicCategory[]> {
+  return getMenuCached(tenantId ?? (await resolveTenant()).id);
 }
 
-export async function getDishBySlugCached(slug: string) {
+export async function getDishBySlugCached(slug: string, tenantId?: string) {
   try {
+    const scopedTenantId = tenantId ?? (await resolveTenant()).id;
     const dish = await db.dish.findFirst({
-      where: { slug, isAvailable: true, deletedAt: null },
+      where: { tenantId: scopedTenantId, slug, isAvailable: true, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -253,10 +256,16 @@ export async function getDishBySlugCached(slug: string) {
   }
 }
 
-export async function getRelatedDishes(categorySlug: string, currentSlug: string, limit = 3): Promise<PublicDish[]> {
+export async function getRelatedDishes(
+  categorySlug: string,
+  currentSlug: string,
+  limit = 3,
+  tenantId?: string
+): Promise<PublicDish[]> {
   try {
-    const category = await db.category.findUnique({
-      where: { slug: categorySlug, isActive: true, deletedAt: null },
+    const scopedTenantId = tenantId ?? (await resolveTenant()).id;
+    const category = await db.category.findFirst({
+      where: { tenantId: scopedTenantId, slug: categorySlug, isActive: true, deletedAt: null },
       include: {
         dishes: {
           where: {
@@ -298,10 +307,10 @@ export async function getRelatedDishes(categorySlug: string, currentSlug: string
 // Admin queries (always fresh)
 // ---------------------------------------------------------------------------
 
-export async function listCategoriesAdmin() {
+export async function listCategoriesAdmin(tenantId: string) {
   try {
     return await db.category.findMany({
-      where: { deletedAt: null },
+      where: { tenantId, deletedAt: null },
       orderBy: { sortOrder: "asc" },
       include: {
         _count: { select: { dishes: { where: { deletedAt: null } } } },
@@ -313,6 +322,7 @@ export async function listCategoriesAdmin() {
 }
 
 export async function listDishesAdmin(input: {
+  tenantId: string;
   search?: string;
   category?: string;
   featured?: string;
@@ -323,6 +333,7 @@ export async function listDishesAdmin(input: {
   pageSize?: number;
 }) {
   const where = {
+    tenantId: input.tenantId,
     deletedAt: null,
     ...(input.search ? { name: { contains: input.search, mode: "insensitive" as const } } : {}),
     ...(input.category ? { categoryId: input.category } : {}),
@@ -367,6 +378,7 @@ export async function invalidateMenuCaches(): Promise<void> {
 }
 
 export async function createCategory(input: {
+  tenantId: string;
   name: string;
   slug?: string;
   description?: string | null;
@@ -375,10 +387,11 @@ export async function createCategory(input: {
   sortOrder: number;
   actorId?: string | null;
 }) {
-  const slug = await uniqueSlug("category", input.slug ? slugify(input.slug) : slugify(input.name));
+  const slug = await uniqueSlug("category", input.tenantId, input.slug ? slugify(input.slug) : slugify(input.name));
 
   const category = await db.category.create({
     data: {
+      tenantId: input.tenantId,
       name: input.name,
       slug,
       description: input.description || null,
@@ -416,7 +429,7 @@ export async function updateCategory(
   if (!existing) throw new Error("NOT_FOUND");
 
   const slug = input.slug ? slugify(input.slug) : slugify(input.name);
-  await ensureSlugUnique("category", slug, id);
+  await ensureSlugUnique("category", existing.tenantId, slug, id);
 
   const category = await db.category.update({
     where: { id },
@@ -468,6 +481,7 @@ export async function deleteCategory(id: string, actorId?: string | null) {
 
 export async function createDish(
   input: {
+    tenantId: string;
     name: string;
     slug?: string;
     categoryId: string;
@@ -488,10 +502,13 @@ export async function createDish(
     actorId?: string | null;
   }
 ) {
-  const slug = await uniqueSlug("dish", input.slug ? slugify(input.slug) : slugify(input.name));
+  const slug = await uniqueSlug("dish", input.tenantId, input.slug ? slugify(input.slug) : slugify(input.name));
+
+  await assertWithinPlan(input.tenantId, "dishes");
 
   const dish = await db.dish.create({
     data: {
+      tenantId: input.tenantId,
       name: input.name,
       slug,
       categoryId: input.categoryId,
@@ -551,7 +568,7 @@ export async function updateDish(
   if (!existing) throw new Error("NOT_FOUND");
 
   const slug = input.slug ? slugify(input.slug) : slugify(input.name);
-  await ensureSlugUnique("dish", slug, id);
+  await ensureSlugUnique("dish", existing.tenantId, slug, id);
 
   const dish = await db.dish.update({
     where: { id },
@@ -685,13 +702,18 @@ export async function reorderDishes(items: { id: string; sortOrder: number }[], 
 // Slug helpers
 // ---------------------------------------------------------------------------
 
-async function uniqueSlug(model: "dish" | "category", base: string) {
-  const existing = await getExistingSlugs(model, base);
+async function uniqueSlug(model: "dish" | "category", tenantId: string, base: string) {
+  const existing = await getExistingSlugs(model, tenantId, base);
   return ensureUniqueSlug(base, existing);
 }
 
-async function ensureSlugUnique(model: "dish" | "category", slug: string, excludeId: string) {
-  const where = { slug, id: { not: excludeId }, deletedAt: null };
+async function ensureSlugUnique(
+  model: "dish" | "category",
+  tenantId: string,
+  slug: string,
+  excludeId: string
+) {
+  const where = { tenantId, slug, id: { not: excludeId }, deletedAt: null };
   const clash =
     model === "dish"
       ? await db.dish.findFirst({ where })
@@ -701,12 +723,81 @@ async function ensureSlugUnique(model: "dish" | "category", slug: string, exclud
   }
 }
 
-async function getExistingSlugs(model: "dish" | "category", prefix: string): Promise<string[]> {
-  const where = { slug: { startsWith: prefix }, deletedAt: null };
+async function getExistingSlugs(
+  model: "dish" | "category",
+  tenantId: string,
+  prefix: string
+): Promise<string[]> {
+  const where = { tenantId, slug: { startsWith: prefix }, deletedAt: null };
   const select = { slug: true } as const;
   const rows =
     model === "dish"
       ? await db.dish.findMany({ where, select })
       : await db.category.findMany({ where, select });
   return rows.map((r) => r.slug);
+}
+// ---------------------------------------------------------------------------
+// Shared S2S menu catalog (used by BOTH the Next route and the Express adapter)
+// ---------------------------------------------------------------------------
+
+const API_MENU_TTL_SECONDS = 300;
+
+/**
+ * Tenant-scoped menu catalog for B2B consumers, cache-aside with a 5 minute TTL.
+ * Cached under `api:menu:*`, which `invalidateMenuCaches` clears on every CMS
+ * write. Prices are plain numbers so the JSON shape is identical whether the
+ * value came from the database or from the cache.
+ */
+export async function getApiMenuCatalog(tenantId: string) {
+  return globalCache.getOrSet(
+    `api:menu:v2:${tenantId}`,
+    async () => {
+      const categories = await db.category.findMany({
+        where: {
+          isActive: true,
+          deletedAt: null,
+          tenantId,
+        },
+        orderBy: { sortOrder: "asc" },
+        include: {
+          dishes: {
+            where: {
+              isAvailable: true,
+              deletedAt: null,
+              tenantId,
+            },
+            orderBy: { sortOrder: "asc" },
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              shortDescription: true,
+              description: true,
+              price: true,
+              compareAtPrice: true,
+              image: true,
+              isFeatured: true,
+              isAvailable: true,
+              isVegetarian: true,
+              isVegan: true,
+              isSpicy: true,
+              containsNuts: true,
+              preparationTime: true,
+              calories: true,
+            },
+          },
+        },
+      });
+
+      return categories.map((category) => ({
+        ...category,
+        dishes: category.dishes.map((dish) => ({
+          ...dish,
+          price: Number(dish.price),
+          compareAtPrice: dish.compareAtPrice === null ? null : Number(dish.compareAtPrice),
+        })),
+      }));
+    },
+    API_MENU_TTL_SECONDS
+  );
 }

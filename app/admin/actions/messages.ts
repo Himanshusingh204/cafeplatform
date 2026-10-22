@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/rate-limit/limiter";
 import { limits } from "@/config/limits";
 import { messageStatusSchema } from "@/lib/validation/schemas";
 import { updateMessageStatus } from "@/lib/services/messages";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
 async function guardMutation(adminId: string): Promise<string | null> {
@@ -23,7 +24,7 @@ export async function updateMessageStatusAction(id: string, status: string): Pro
   if (!parsed.success) return { ok: false, error: "Unknown message status." };
 
   try {
-    await updateMessageStatus(id, parsed.data.status, admin.id);
+    await updateMessageStatus(id, parsed.data.status, await getAdminTenantId(admin), admin.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message === "NOT_FOUND") return { ok: false, error: "This message no longer exists." };

@@ -1,12 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
 import { rateLimit } from "@/lib/rate-limit/limiter";
 import { limits } from "@/config/limits";
 import { settingsInputSchema } from "@/lib/validation/schemas";
 import { updateSettings } from "@/lib/services/settings";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
 export async function updateSettingsAction(input: Record<string, unknown>): Promise<ActionState> {
@@ -21,11 +22,14 @@ export async function updateSettingsAction(input: Record<string, unknown>): Prom
   }
 
   try {
-    await updateSettings(parsed.data, admin.id);
+    await updateSettings(await getAdminTenantId(admin), parsed.data, admin.id);
   } catch {
     return { ok: false, error: "Could not save settings. Please try again." };
   }
 
+  // Settings are cached by tag (see lib/services/settings.ts); without this
+  // the old identity/contact values survive the 300s revalidate window.
+  revalidateTag("settings", "max");
   revalidatePath("/", "layout");
   return { ok: true };
 }

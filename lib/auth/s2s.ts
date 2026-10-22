@@ -2,6 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { db } from "@/lib/db/prisma";
 import { AVAILABLE_SCOPES, type ApiScope } from "@/config/s2s";
+import { assertWithinPlan } from "@/lib/plans";
 
 export { AVAILABLE_SCOPES, type ApiScope };
 
@@ -30,6 +31,8 @@ export async function createApiKey(params: {
   ipAllowlist?: string[];
   expiresInDays?: number;
 }): Promise<{ apiKey: string; keyPrefix: string; id: string }> {
+  await assertWithinPlan(params.tenantId, "apiKeys");
+
   const randomBytes = crypto.randomBytes(24).toString("hex");
   const fullApiKey = `sp_live_${randomBytes}`;
   const keyPrefix = fullApiKey.slice(0, 16);
@@ -58,9 +61,39 @@ export async function createApiKey(params: {
   };
 }
 
+/** Minimum gap between `lastUsedAt` writes for one key. */
+export const LAST_USED_WRITE_INTERVAL_MS = 60_000;
+
+const lastWriteAt = new Map<string, number>();
+
+/** Compare two hex SHA-256 digests in constant time. */
+export function digestsMatch(storedHex: string, computedHex: string): boolean {
+  const a = Buffer.from(storedHex, "hex");
+  const b = Buffer.from(computedHex, "hex");
+  if (a.length === 0 || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * True when `lastUsedAt` is older than the throttle interval. An in-process map
+ * also suppresses bursts before the stored value is visible to this instance.
+ */
+export function shouldRecordUse(keyId: string, storedLastUsedAt: Date | null | undefined, now = Date.now()): boolean {
+  const local = lastWriteAt.get(keyId) ?? 0;
+  const stored = storedLastUsedAt ? storedLastUsedAt.getTime() : 0;
+  if (now - Math.max(local, stored) < LAST_USED_WRITE_INTERVAL_MS) return false;
+  if (lastWriteAt.size > 5_000) lastWriteAt.clear();
+  lastWriteAt.set(keyId, now);
+  return true;
+}
+
 /**
  * Extracts and verifies an API key from the Authorization header or x-api-key header.
- * Uses constant-time buffer comparison to prevent timing attacks.
+ *
+ * Lookup is by SHA-256 hash of the presented key (the secret itself is never
+ * compared or stored). `digestsMatch` then confirms the digests with
+ * `crypto.timingSafeEqual`. `lastUsedAt` is written at most once per
+ * `LAST_USED_WRITE_INTERVAL_MS` per key, keeping the hot path read-only.
  */
 export async function verifyS2SRequest(
   request: Request,
@@ -97,10 +130,10 @@ export async function verifyS2SRequest(
     return { success: false, status: 403, error: "Tenant account is inactive" };
   }
 
-  // Verify constant-time comparison
-  const storedBuffer = Buffer.from(apiKey.keyHash, "utf8");
-  const computedBuffer = Buffer.from(tokenHash, "utf8");
-  if (storedBuffer.length !== computedBuffer.length || !crypto.timingSafeEqual(storedBuffer, computedBuffer)) {
+  // The row was found by an indexed hash lookup, which is not itself a secret
+  // comparison. This is a defence-in-depth check on the raw 32-byte digests
+  // (equal length by construction), so it never short-circuits on a prefix.
+  if (!digestsMatch(apiKey.keyHash, tokenHash)) {
     return { success: false, status: 401, error: "API Key verification failed" };
   }
 
@@ -113,11 +146,21 @@ export async function verifyS2SRequest(
     };
   }
 
-  // Fire-and-forget update of lastUsedAt
-  db.apiKey.update({
-    where: { id: apiKey.id },
-    data: { lastUsedAt: new Date() },
-  }).catch(() => {});
+  // An empty list means "any address". Otherwise the caller's first forwarded hop must be listed.
+  if (apiKey.ipAllowlist?.length) {
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim();
+    if (!clientIp || !apiKey.ipAllowlist.includes(clientIp)) {
+      return { success: false, status: 403, error: "Forbidden: request IP is not allowed for this API Key" };
+    }
+  }
+
+  if (shouldRecordUse(apiKey.id, apiKey.lastUsedAt)) {
+    db.apiKey.update({
+      where: { id: apiKey.id },
+      data: { lastUsedAt: new Date() },
+    }).catch(() => {});
+  }
 
   return {
     success: true,

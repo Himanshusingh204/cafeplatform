@@ -23,8 +23,8 @@ interface ReviewsSectionProps {
 export function ReviewsSection({
   reviews,
   dishSlug,
-  title = "Words From Our Guests",
-  subtitle = "Honest thoughts from those who pulled up a chair in Hauz Khas.",
+  title = "What guests say",
+  subtitle = "Notes from people who pulled up a chair in Hauz Khas.",
 }: ReviewsSectionProps) {
   const [modalOpen, setModalOpen] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -34,6 +34,23 @@ export function ReviewsSection({
   const [submitting, setSubmitting] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const openerRef = React.useRef<HTMLButtonElement>(null);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!modalOpen) return;
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLElement>("input, button")?.focus();
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setModalOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const opener = openerRef.current;
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, [modalOpen]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,12 +81,13 @@ export function ReviewsSection({
       <div className="container-site">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div>
-            <p className="eyebrow mb-2">Guest Testimonials</p>
             <h2 className="heading-display text-3xl md:text-4xl text-foreground">{title}</h2>
             <p className="mt-2 text-sm text-muted-foreground max-w-lg">{subtitle}</p>
           </div>
 
           <button
+            ref={openerRef}
+            type="button"
             onClick={() => {
               setSubmitted(false);
               setModalOpen(true);
@@ -83,19 +101,20 @@ export function ReviewsSection({
 
         {/* Reviews Grid */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {reviews.map((rev) => (
+          {reviews.map((rev, idx) => (
             <div
               key={rev.id}
-              className="rounded-2xl border border-border bg-card p-6 shadow-card flex flex-col justify-between"
+              className={`${idx === 0 && reviews.length >= 3 ? "lg:col-span-2 lg:p-8" : ""} rounded-2xl border border-border bg-card p-6 shadow-card flex flex-col justify-between`}
             >
               <div>
-                <div className="flex items-center gap-1 mb-3">
+                <div className="flex items-center gap-1 mb-3" role="img" aria-label={`${rev.rating} out of 5 stars`}>
                   {[...Array(5)].map((_, i) => (
                     <Star
                       key={i}
+                      aria-hidden="true"
                       className={`h-4 w-4 ${
                         i < rev.rating
-                          ? "fill-amber-400 text-amber-400"
+                          ? "fill-primary text-primary"
                           : "fill-muted text-muted"
                       }`}
                     />
@@ -103,14 +122,13 @@ export function ReviewsSection({
                 </div>
 
                 <h3 className="font-semibold text-foreground text-base mb-2">{rev.title}</h3>
-                <p className="text-xs leading-relaxed text-muted-foreground italic">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   &ldquo;{rev.comment}&rdquo;
                 </p>
               </div>
 
               <div className="border-t border-border/60 pt-4 mt-6 flex items-center justify-between text-xs">
                 <span className="font-medium text-foreground">{rev.customerName}</span>
-                <span className="text-muted-foreground">Verified Diner</span>
               </div>
             </div>
           ))}
@@ -119,9 +137,17 @@ export function ReviewsSection({
 
       {/* Review Submission Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 md:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/60 backdrop-blur-sm">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-dialog-title"
+            className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 md:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+          >
             <button
+              type="button"
+              aria-label="Close review form"
               onClick={() => setModalOpen(false)}
               className="absolute right-4 top-4 rounded-full p-2 text-muted-foreground hover:bg-muted"
             >
@@ -133,7 +159,7 @@ export function ReviewsSection({
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success/15 text-success">
                   <CheckCircle2 className="h-7 w-7" />
                 </div>
-                <h3 className="heading-display text-2xl font-bold">Dhanyavaad!</h3>
+                <h3 id="review-dialog-title" className="heading-display text-2xl">Thank you</h3>
                 <p className="text-xs text-muted-foreground max-w-sm mx-auto">
                   Thank you for sharing your feedback. Your review will appear on the site once moderated by our kitchen team.
                 </p>
@@ -146,30 +172,33 @@ export function ReviewsSection({
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                <h3 className="heading-display text-xl font-bold text-foreground">
+                <h3 id="review-dialog-title" className="heading-display text-xl text-foreground">
                   Share Your Dining Experience
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Tell us what made your meal memorable at Spice & Saffron.
                 </p>
 
-                {error && <p className="text-xs text-destructive">{error}</p>}
+                {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Your Rating</label>
-                  <div className="flex gap-2">
+                  <span id="rating-label" className="text-sm font-medium text-foreground mb-1 block">Your rating</span>
+                  <div className="flex gap-2" role="radiogroup" aria-labelledby="rating-label">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
                         type="button"
                         key={star}
+                        role="radio"
+                        aria-checked={star === rating}
+                        aria-label={`${star} ${star === 1 ? "star" : "stars"}`}
                         onClick={() => setRating(star)}
                         className="p-1 hover:scale-110 transition-transform"
                       >
                         <Star
                           className={`h-6 w-6 ${
                             star <= rating
-                              ? "fill-amber-400 text-amber-400"
-                              : "text-muted hover:text-amber-300"
+                              ? "fill-primary text-primary"
+                              : "text-muted-foreground/50 hover:text-primary"
                           }`}
                         />
                       </button>
@@ -178,38 +207,41 @@ export function ReviewsSection({
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Full Name *</label>
+                  <label htmlFor="rv-name" className="text-sm font-medium text-foreground mb-1 block">Full Name *</label>
                   <input
+                    id="rv-name"
                     type="text"
                     required
                     placeholder="e.g. Sanya Gupta"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Headline / Title *</label>
+                  <label htmlFor="rv-title" className="text-sm font-medium text-foreground mb-1 block">Headline / Title *</label>
                   <input
+                    id="rv-title"
                     type="text"
                     required
                     placeholder="e.g. Incredible Dal Makhani and lovely ambience"
                     value={reviewTitle}
                     onChange={(e) => setReviewTitle(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Your Review *</label>
+                  <label htmlFor="rv-comment" className="text-sm font-medium text-foreground mb-1 block">Your Review *</label>
                   <textarea
+                    id="rv-comment"
                     rows={3}
                     required
                     placeholder="Tell us about the flavours, hospitality, and your favourite dishes..."
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
                 </div>
 
@@ -218,7 +250,7 @@ export function ReviewsSection({
                   disabled={submitting}
                   className="w-full rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {submitting ? "Submitting..." : "Post Review for Verification"}
+                  {submitting ? "Submitting" : "Post Review for Verification"}
                 </button>
               </form>
             )}

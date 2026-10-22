@@ -178,7 +178,7 @@ export function ContactForm() {
       >
         <p className="heading-display text-2xl">Message received</p>
         <p className="mt-2 text-muted-foreground">
-          Thank you for writing to us — we usually reply within a day.
+          Thank you for writing to us - we usually reply within a day.
         </p>
         <Button variant="outline" className="mt-6" onClick={() => setStatus("idle")}>
           Send another message
@@ -288,7 +288,7 @@ export function ContactForm() {
         ) : null}
       </div>
 
-      {/* Honeypot — hidden from real users, catches bots. */}
+      {/* Honeypot - hidden from real users, catches bots. */}
       <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
         <label htmlFor="contact-website">Website</label>
         <input id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" />
@@ -301,7 +301,7 @@ export function ContactForm() {
       ) : null}
 
       <Button type="submit" size="lg" disabled={status === "sending"}>
-        {status === "sending" ? "Sending…" : "Send message"}
+        {status === "sending" ? "Sending" : "Send message"}
         <Send className="h-4 w-4" aria-hidden="true" />
       </Button>
     </form>

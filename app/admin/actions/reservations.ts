@@ -16,7 +16,7 @@ export async function updateReservationStatusAction(
   status: ReservationStatus,
   notes?: string
 ): Promise<ActionState> {
-  const admin = await requirePermission(permissions.VIEW_MESSAGES);
+  const admin = await requirePermission(permissions.MANAGE_RESERVATIONS);
 
   try {
     await updateReservationStatus(id, status, notes, admin.id);

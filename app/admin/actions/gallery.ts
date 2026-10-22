@@ -11,6 +11,8 @@ import {
   updateGalleryImage,
   deleteGalleryImage,
 } from "@/lib/services/gallery";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
+import { PlanLimitError } from "@/lib/plans";
 import type { ActionState } from "@/app/admin/actions/dishes";
 
 async function guardMutation(adminId: string): Promise<string | null> {
@@ -40,12 +42,14 @@ export async function saveGalleryImageAction(input: Record<string, unknown>): Pr
   if (imageUrl.length > 500) return { ok: false, error: "The image path is too long." };
 
   try {
+    const tenantId = await getAdminTenantId(admin);
     if (id) {
-      await updateGalleryImage(id, { ...parsed.data, imageUrl, actorId: admin.id });
+      await updateGalleryImage(id, { ...parsed.data, tenantId, imageUrl, actorId: admin.id });
     } else {
-      await createGalleryImage({ ...parsed.data, imageUrl, actorId: admin.id });
+      await createGalleryImage({ ...parsed.data, tenantId, imageUrl, actorId: admin.id });
     }
   } catch (error) {
+    if (error instanceof PlanLimitError) return { ok: false, error: error.message };
     const message = error instanceof Error ? error.message : "";
     if (message === "NOT_FOUND") return { ok: false, error: "This image no longer exists." };
     return { ok: false, error: "Could not save the image. Please try again." };
@@ -63,7 +67,7 @@ export async function deleteGalleryImageAction(id: string): Promise<ActionState>
   if (blocked) return { ok: false, error: blocked };
 
   try {
-    await deleteGalleryImage(id, admin.id);
+    await deleteGalleryImage(id, await getAdminTenantId(admin), admin.id);
   } catch {
     return { ok: false, error: "Could not delete the image. Please try again." };
   }

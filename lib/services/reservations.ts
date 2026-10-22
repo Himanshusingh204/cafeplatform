@@ -141,3 +141,44 @@ export async function getReservationStats() {
     return { pendingCount: 0, todayCount: 0, totalSeated: 0 };
   }
 }
+
+export type CustomerCancelOutcome = "cancelled" | "already_cancelled" | "not_found" | "not_cancellable";
+
+/**
+ * Customer-initiated cancellation. Requires the email on the booking to match,
+ * and only PENDING/CONFIRMED reservations dated today or later can be
+ * cancelled. The status check is part of the UPDATE, so concurrent requests
+ * cannot cancel twice. Already-cancelled bookings are an idempotent success.
+ */
+export async function cancelReservationForCustomer(
+  referenceCode: string,
+  email: string,
+  now: Date = new Date()
+): Promise<CustomerCancelOutcome> {
+  const code = referenceCode.toUpperCase().trim();
+  const normalizedEmail = email.toLowerCase().trim();
+
+  const existing = await db.reservation.findUnique({ where: { referenceCode: code } });
+  // Same answer for a wrong code and a wrong email: no booking enumeration.
+  if (!existing || existing.email.toLowerCase().trim() !== normalizedEmail) return "not_found";
+  if (existing.status === "CANCELLED") return "already_cancelled";
+
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const result = await db.reservation.updateMany({
+    where: {
+      id: existing.id,
+      status: { in: ["PENDING", "CONFIRMED"] },
+      date: { gte: startOfToday },
+    },
+    data: { status: "CANCELLED" },
+  });
+  if (result.count === 0) return "not_cancellable";
+
+  await logAction({
+    action: "RESERVATION_STATUS_CHANGED",
+    entityType: "Reservation",
+    entityId: existing.id,
+    metadata: { newStatus: "CANCELLED", referenceCode: code, by: "customer" },
+  });
+  return "cancelled";
+}

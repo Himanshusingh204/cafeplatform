@@ -10,6 +10,7 @@ import {
   RotateCcw,
   CheckCircle,
   Search,
+  Hash,
   ArrowRight,
 } from "lucide-react";
 
@@ -60,6 +61,7 @@ export default function LoyaltyPage() {
   const { addItem, openCart } = useCart();
 
   const [emailInput, setEmailInput] = useState("");
+  const [orderNumberInput, setOrderNumberInput] = useState("");
   const [profile, setProfile] = useState<LoyaltyProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -67,23 +69,30 @@ export default function LoyaltyPage() {
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!emailInput.trim()) return;
+    const email = emailInput.trim();
+    const orderNumber = orderNumberInput.trim();
+    if (!email || !orderNumber) return;
 
     setLoading(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch(
-        `/api/v1/loyalty/profile?email=${encodeURIComponent(emailInput.trim())}`
-      );
+      const params = new URLSearchParams({ email, orderNumber });
+      const res = await fetch(`/api/v1/loyalty/profile?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setProfile(data);
+      } else if (res.status === 429) {
+        setErrorMsg("Too many lookup attempts. Please wait a few minutes and try again.");
+      } else if (res.status === 404) {
+        setErrorMsg(
+          "No loyalty profile found for those details. Check your email and a recent order number."
+        );
       } else {
-        setErrorMsg("Failed to retrieve loyalty profile");
+        setErrorMsg("We could not load your profile right now. Please try again in a moment.");
       }
     } catch {
-      setErrorMsg("Network error connecting to loyalty engine");
+      setErrorMsg("We could not reach the server. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -120,15 +129,15 @@ export default function LoyaltyPage() {
       <div className="w-full max-w-4xl space-y-8">
         {/* Hero Section */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-semibold">
             <Crown className="w-3.5 h-3.5" />
-            Maharaja Connoisseur Circle
+            Rewards for regulars
           </div>
           <h1 className="text-3xl sm:text-5xl font-bold font-serif text-foreground">
-            VIP Loyalty & Rewards
+            VIP Club
           </h1>
           <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-            Earn 10 points per ₹100 spent, unlock complimentary chef starters, priority table seating, and 1-click reordering.
+            Earn points on every order, unlock perks, and reorder past favourites in one tap.
           </p>
         </div>
 
@@ -137,41 +146,78 @@ export default function LoyaltyPage() {
           <div className="max-w-md mx-auto p-6 rounded-3xl bg-card border border-border shadow-xl space-y-4">
             <div className="text-center space-y-1">
               <h2 className="text-lg font-bold font-serif text-foreground">
-                Access Your VIP Member Card
+                Find your VIP card
               </h2>
               <p className="text-xs text-muted-foreground">
-                Enter your order email to view your tier points balance and reorder past favorites.
+                Enter your order email and a recent order number to see your points and past orders.
               </p>
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+              <div role="alert" id="loyalty-error" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-800 dark:text-rose-400 text-xs">
                 {errorMsg}
               </div>
             )}
 
-            <form onSubmit={handleLookup} className="space-y-3">
+            <form onSubmit={handleLookup} className="space-y-4" aria-busy={loading}>
+              <div>
+                <label htmlFor="loyalty-email" className="mb-2 block text-sm font-medium text-foreground">Email</label>
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Search aria-hidden="true" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  id="loyalty-email"
+                  name="email"
                   type="email"
                   required
-                  placeholder="your.email@example.com"
+                  autoComplete="email"
+                  aria-describedby={errorMsg ? "loyalty-error" : undefined}
+                  placeholder="you@example.com"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </div>
+              </div>
+
+              <div>
+                <label htmlFor="loyalty-order" className="mb-2 block text-sm font-medium text-foreground">Order number</label>
+              <div className="relative">
+                <Hash aria-hidden="true" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  id="loyalty-order"
+                  name="orderNumber"
+                  type="text"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="ORD-260101-AB12CD"
+                  value={orderNumberInput}
+                  onChange={(e) => setOrderNumberInput(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                A recent order number confirms the profile is yours.
+              </p>
 
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-2.5 px-4 rounded-xl text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm flex items-center justify-center gap-2"
               >
-                <span>{loading ? "Verifying..." : "View VIP Rewards"}</span>
+                <span>{loading ? "Checking" : "View my rewards"}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
+          </div>
+        )}
+
+        {loading && !profile && (
+          <div className="max-w-md mx-auto space-y-3" role="status" aria-label="Loading your profile">
+            <div className="h-24 animate-pulse rounded-2xl bg-muted" />
+            <div className="h-10 animate-pulse rounded-xl bg-muted" />
           </div>
         )}
 
@@ -184,18 +230,18 @@ export default function LoyaltyPage() {
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-500/20 pb-6">
                 <div>
-                  <div className="text-[10px] font-mono tracking-widest text-amber-400 uppercase">
-                    SPICE & SAFFRON • PRIVILEGE CLUB
+                  <div className="text-xs tracking-widest text-amber-300">
+                    SPICE & SAFFRON VIP CLUB
                   </div>
-                  <h2 className="text-2xl sm:text-3xl font-bold font-serif text-white mt-1">
+                  <h2 className="text-2xl sm:text-3xl font-bold font-serif text-neutral-50 mt-1">
                     {profile.name}
                   </h2>
-                  <div className="text-xs text-amber-200/70">{profile.email}</div>
+                  <div className="text-sm text-amber-200">{profile.email}</div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span className={`px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider border shadow-sm ${profile.badgeColor}`}>
-                    👑 {profile.tierName}
+                    {profile.tierName}
                   </span>
                 </div>
               </div>
@@ -203,32 +249,32 @@ export default function LoyaltyPage() {
               {/* Points & Discount Value */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6">
                 <div>
-                  <div className="text-xs text-amber-300/80 font-medium">Available Balance</div>
+                  <div className="text-sm text-amber-200 font-medium">Available Balance</div>
                   <div className="text-3xl sm:text-4xl font-extrabold font-serif text-amber-400 mt-0.5">
                     {profile.loyaltyPoints}{" "}
-                    <span className="text-sm font-normal text-amber-200/70">pts</span>
+                    <span className="text-sm font-normal text-amber-200">pts</span>
                   </div>
-                  <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">
+                  <div className="text-xs text-emerald-300 mt-1 flex items-center gap-1">
                     <Sparkles className="w-3 h-3" /> Worth ₹{Math.floor(profile.loyaltyPoints / 100) * 50} discount
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-xs text-amber-300/80 font-medium">Lifetime Dining Spend</div>
-                  <div className="text-2xl font-bold font-serif text-white mt-0.5">
+                  <div className="text-sm text-amber-200 font-medium">Lifetime Dining Spend</div>
+                  <div className="text-2xl font-bold font-serif text-neutral-50 mt-0.5">
                     ₹{profile.lifetimeSpend.toLocaleString()}
                   </div>
-                  <div className="text-[11px] text-amber-200/70 mt-1">
+                  <div className="text-xs text-amber-200 mt-1">
                     {profile.nextTierThreshold
                       ? `₹${profile.spendToNextTier.toLocaleString()} to next tier`
-                      : "Top Maharaja Tier Reached"}
+                      : "Top tier reached"}
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-xs text-amber-300/80 font-medium">Redemption Rule</div>
-                  <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                    100 pts = ₹50 off. Redeemable instantly at online checkout or table bill!
+                  <div className="text-sm text-amber-200 font-medium">Redemption Rule</div>
+                  <div className="text-sm text-amber-100 mt-1 leading-relaxed">
+                    100 pts = ₹50 off. Redeemable at checkout or on a table bill.
                   </div>
                 </div>
               </div>
@@ -266,30 +312,30 @@ export default function LoyaltyPage() {
                     key={i}
                     className="p-3 rounded-2xl bg-background border border-border flex items-center gap-2.5 text-xs font-medium text-foreground"
                   >
-                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>{perk}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* 1-Click Past Order Reorder Section */}
+            {/* Reorder a past order Section */}
             <div className="p-6 rounded-3xl bg-card border border-border space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold font-serif text-foreground flex items-center gap-2">
                     <RotateCcw className="w-4 h-4 text-primary" />
-                    1-Click Past Order Reorder
+                    Reorder a past order
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Repeat your favorite royal meals in one tap. Items and modifiers populate your cart instantly.
+                    Add a past order to your bag in one tap.
                   </p>
                 </div>
               </div>
 
               {profile.recentOrders.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-6 text-center">
-                  No past orders found under this account yet. Place your first order to enable 1-click reorder!
+                <p className="text-sm text-muted-foreground py-6 text-center">
+                  No past orders yet. Once you order, it will show up here for quick reordering.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -303,7 +349,7 @@ export default function LoyaltyPage() {
                           <span className="font-mono text-xs font-bold text-primary">
                             {order.orderNumber}
                           </span>
-                          <span className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                          <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
                             {order.diningMode.replace("_", " ")}
                           </span>
                           <span className="text-xs font-bold text-foreground">
@@ -322,7 +368,7 @@ export default function LoyaltyPage() {
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                         <span>
-                          {reorderedOrderId === order.id ? "Added to Cart!" : "1-Click Reorder"}
+                          {reorderedOrderId === order.id ? "Added to bag" : "Reorder"}
                         </span>
                       </button>
                     </div>
@@ -332,6 +378,11 @@ export default function LoyaltyPage() {
             </div>
 
             {/* Recent Points Ledger */}
+            {profile.recentLedger.length === 0 && (
+              <p className="rounded-3xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                No points activity yet.
+              </p>
+            )}
             {profile.recentLedger.length > 0 && (
               <div className="p-6 rounded-3xl bg-card border border-border space-y-4">
                 <h3 className="text-base font-bold font-serif text-foreground flex items-center gap-2">
@@ -344,7 +395,7 @@ export default function LoyaltyPage() {
                       <span className="text-foreground">{ledger.reason}</span>
                       <span
                         className={`font-mono font-bold ${
-                          ledger.pointsDelta > 0 ? "text-emerald-400" : "text-rose-400"
+                          ledger.pointsDelta > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"
                         }`}
                       >
                         {ledger.pointsDelta > 0 ? `+${ledger.pointsDelta}` : ledger.pointsDelta} pts

@@ -2,11 +2,20 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { headers } from "next/headers";
+import { getIpHash } from "@/lib/api/request";
+import { resolveTenant } from "@/lib/db/tenant";
 import { rateLimit } from "@/lib/rate-limit/limiter";
-import { createReservation, getReservationByCode, type CreateReservationInput } from "@/lib/services/reservations";
-import { createOrder, validateCoupon, type CreateOrderInput } from "@/lib/services/orders";
+import { cancelReservationForCustomer, createReservation, getReservationByCode, type CreateReservationInput } from "@/lib/services/reservations";
+import {
+  createOrder,
+  publicOrderInputSchema,
+  validateCoupon,
+  type CreateOrderInput,
+  type CouponValidationResult,
+} from "@/lib/services/orders";
 import { createReview, type CreateReviewInput } from "@/lib/services/reviews";
-import { sendReservationConfirmation, sendOrderReceipt } from "@/lib/email/notifier";
+import { PlanLimitError } from "@/lib/plans";
+import { sendReservationConfirmation } from "@/lib/email/notifier";
 
 export interface PublicActionResult<T = unknown> {
   ok: boolean;
@@ -23,6 +32,39 @@ async function getClientIp(): Promise<string> {
   } catch {
     return "unknown-ip";
   }
+}
+
+/**
+ * Accepts only a strict `YYYY-MM-DD` calendar date. Anything else (an invalid
+ * string, a random Date, `2026-02-31`) is rejected here so it never reaches
+ * Prisma as an `Invalid Date`.
+ */
+function parseReservationDate(value: unknown): Date | null {
+  const raw =
+    typeof value === "string"
+      ? value.trim()
+      : value instanceof Date && !Number.isNaN(value.getTime())
+        ? value.toISOString().slice(0, 10)
+        : "";
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  // Round-trip guard: `new Date(2026, 1, 31)` silently becomes 3 March.
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
 }
 
 export async function submitReservationAction(
@@ -55,10 +97,21 @@ export async function submitReservationAction(
     return { ok: false, error: "Please select a booking date and time slot." };
   }
 
+  const bookingDate = parseReservationDate(input.date);
+  if (!bookingDate) {
+    return { ok: false, error: "Please choose a valid booking date (YYYY-MM-DD)." };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (bookingDate < today) {
+    return { ok: false, error: "Please choose today or a future date for your booking." };
+  }
+
   try {
     const reservation = await createReservation({
       ...input,
-      date: new Date(input.date),
+      date: bookingDate,
     });
 
     sendReservationConfirmation({
@@ -126,7 +179,47 @@ export async function lookupReservationAction(
   }
 }
 
-export async function checkCouponAction(code: string, subtotal: number) {
+export async function cancelReservationAction(
+  code: string,
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  const cleanCode = code?.trim().toUpperCase();
+  const cleanEmail = email?.trim().toLowerCase();
+  if (!cleanCode || !/^[A-Z0-9-]{4,30}$/.test(cleanCode)) {
+    return { success: false, error: "Please enter a valid booking reference code." };
+  }
+  if (!cleanEmail || cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return { success: false, error: "Please enter the email address used for the booking." };
+  }
+
+  const ip = await getClientIp();
+  const ipLimiter = await rateLimit(`cancel:ip:${ip}`, 10, 60 * 1000);
+  if (!ipLimiter.success) {
+    return { success: false, error: "Too many requests. Please wait a moment." };
+  }
+
+  try {
+    const outcome = await cancelReservationForCustomer(cleanCode, cleanEmail);
+    switch (outcome) {
+      case "cancelled":
+      case "already_cancelled":
+        revalidatePath("/admin/reservations");
+        return { success: true };
+      case "not_cancellable":
+        return { success: false, error: "This booking can no longer be cancelled online. Please call us." };
+      default:
+        return { success: false, error: "We could not find a booking with that reference and email." };
+    }
+  } catch (error) {
+    console.error("cancelReservationAction error:", error);
+    return { success: false, error: "Unable to cancel right now. Please call us directly." };
+  }
+}
+
+export async function checkCouponAction(
+  code: string,
+  subtotal: number
+): Promise<CouponValidationResult> {
   const cleanCode = code?.trim().toUpperCase();
   if (!cleanCode || cleanCode.length < 2) {
     return { valid: false, message: "Invalid coupon code format." };
@@ -139,53 +232,55 @@ export async function checkCouponAction(code: string, subtotal: number) {
     return { valid: false, message: "Too many coupon attempts. Please wait a moment." };
   }
 
-  return await validateCoupon(cleanCode, subtotal);
+  return await validateCoupon(cleanCode, subtotal, (await resolveTenant()).id);
 }
 
 export async function submitTakeawayOrderAction(
   input: CreateOrderInput
 ): Promise<PublicActionResult<{ id: string; orderNumber: string }>> {
+  // Treat everything from the browser as untrusted. Only the public fields are
+  // read; `paymentStatus`, `tenantId` and all money totals are stripped here,
+  // so an anonymous caller cannot mark an order paid or bill another tenant.
+  const parsed = publicOrderInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Please check your order details and try again.",
+    };
+  }
+  const payload = parsed.data;
+
   const ip = await getClientIp();
   const ipLimiter = await rateLimit(`order:ip:${ip}`, 15, 10 * 60 * 1000);
   if (!ipLimiter.success) {
     return { ok: false, error: "Too many order submissions from this connection. Please wait a few minutes." };
   }
 
-  const limiter = await rateLimit(`order:${input.customerEmail}`, 10, 10 * 60 * 1000);
+  const limiter = await rateLimit(`order:${payload.customerEmail.toLowerCase()}`, 10, 10 * 60 * 1000);
   if (!limiter.success) {
     return { ok: false, error: "Too many order submissions. Please wait a few minutes." };
   }
 
-  if (!input.items || input.items.length === 0) {
+  if (!payload.items || payload.items.length === 0) {
     return { ok: false, error: "Your takeaway bag is empty." };
-  }
-  if (!input.customerName || input.customerName.trim().length < 2) {
-    return { ok: false, error: "Please enter your name for pickup." };
-  }
-  if (!input.customerPhone || input.customerPhone.trim().length < 8) {
-    return { ok: false, error: "Please enter a valid phone number for SMS pickup alerts." };
   }
 
   try {
-    const order = await createOrder(input);
+    const tenant = await resolveTenant();
+    const order = await createOrder({
+      ...payload,
+      tenantId: tenant.id,
+      allowAdHoc: false,
+    });
 
-    sendOrderReceipt({
-      customerName: order.customerName,
-      customerEmail: order.customerEmail,
-      orderNumber: order.orderNumber,
-      pickupTime: order.pickupTime,
-      total: Number(order.total),
-      items: order.items.map((i) => ({
-        dishName: i.dishName,
-        quantity: i.quantity,
-        price: Number(i.price),
-      })),
-    }).catch(() => undefined);
-
+    // The receipt is queued by createOrder through the outbox; sending here too would double-mail.
     revalidatePath("/admin/orders");
     revalidatePath("/admin");
     return { ok: true, data: { id: order.id, orderNumber: order.orderNumber } };
   } catch (error) {
+    if (error instanceof PlanLimitError) {
+      return { ok: false, error: "This venue is not accepting online orders right now. Please call us." };
+    }
     console.error("submitTakeawayOrderAction error:", error);
     return { ok: false, error: "Unable to place order. Please try again." };
   }
@@ -194,8 +289,16 @@ export async function submitTakeawayOrderAction(
 export async function submitReviewAction(
   input: CreateReviewInput
 ): Promise<PublicActionResult> {
-  const limiter = await rateLimit(`review:${input.customerName}`, 3, 15 * 60 * 1000);
-  if (!limiter.success) {
+  // Key the primary limiter on the connection, not on a value the attacker can
+  // rotate for free. The name bucket stays as a secondary per-author cap.
+  const ipHash = (await getIpHash()) ?? (await getClientIp());
+  const ipLimiter = await rateLimit(`review:ip:${ipHash}`, 10, 15 * 60 * 1000);
+  if (!ipLimiter.success) {
+    return { ok: false, error: "Too many submissions. Please wait a moment." };
+  }
+
+  const nameLimiter = await rateLimit(`review:${input.customerName?.trim().toLowerCase() || "anonymous"}`, 3, 15 * 60 * 1000);
+  if (!nameLimiter.success) {
     return { ok: false, error: "Too many submissions. Please wait a moment." };
   }
 
@@ -207,7 +310,8 @@ export async function submitReviewAction(
   }
 
   try {
-    await createReview(input);
+    const tenant = await resolveTenant();
+    await createReview(tenant.id, input);
     revalidatePath("/admin/reviews");
     revalidateTag("reviews", "max");
     return { ok: true };

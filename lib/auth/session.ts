@@ -41,6 +41,7 @@ export interface SessionAdmin {
   name: string;
   role: Admin["role"];
   isActive: boolean;
+  tenantId: string | null;
 }
 
 export async function getSession(): Promise<SessionAdmin | null> {
@@ -51,7 +52,7 @@ export async function getSession(): Promise<SessionAdmin | null> {
   const tokenHash = hashToken(token);
   const session = await db.session.findUnique({
     where: { tokenHash },
-    include: { admin: { select: { id: true, email: true, name: true, role: true, isActive: true } } },
+    include: { admin: { select: { id: true, email: true, name: true, role: true, isActive: true, tenantId: true } } },
   });
 
   if (!session || session.expiresAt < new Date()) {
@@ -79,6 +80,7 @@ export async function getSession(): Promise<SessionAdmin | null> {
     name: session.admin.name,
     role: session.admin.role,
     isActive: session.admin.isActive,
+    tenantId: session.admin.tenantId,
   };
 }
 

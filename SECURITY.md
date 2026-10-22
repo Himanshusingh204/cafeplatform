@@ -155,3 +155,41 @@ Responsible disclosure is genuinely appreciated. With your permission, I will
 credit you in the release notes for a confirmed, fixed vulnerability.
 
 © 2026 Himanshu. All Rights Reserved.
+
+---
+
+## Threat Model Summary
+
+**Assets:** customer PII (orders, reservations, loyalty), payment/webhook integrity, admin
+sessions, tenant isolation, S2S API keys, uploaded media.
+
+**Trust boundaries:** public browser to Next/Express; third-party webhooks (Razorpay, Stripe,
+partner ingress) to the API; S2S clients to `/api/v1/*`; app to Postgres/Redis/object storage.
+
+| Threat | Mitigation | Code |
+| :--- | :--- | :--- |
+| Misconfigured/insecure production boot | Fail-fast aggregated env validation (names only) | `lib/config/env.ts`, `instrumentation.ts`, `server/api.ts` |
+| Per-instance state (duplicate orders, bypassed limits) | Redis required in production unless `ALLOW_IN_MEMORY_STATE=true`; critical routes refuse | `lib/api/request-guards.ts`, `lib/rate-limit/` |
+| Replay / duplicate order submits | Idempotency key scoped by tenant+operation, bound to payload hash (409 on mismatch) | `lib/api/request-guards.ts`, `lib/resilience/idempotency.ts` |
+| Forged webhooks | HMAC signature verification, fail closed when secret blank | `app/api/v1/webhooks/*`, `lib/payments/engine.ts` |
+| Stolen/abused S2S keys | Hashed at rest, scoped, optional IP allowlist, rate limited | `lib/auth/s2s.ts` |
+| Admin session theft | Opaque hashed tokens, httpOnly, secure, sameSite=lax cookie | `lib/auth/session.ts` |
+| CSRF / cross-origin mutation | Origin check with explicit allowlist | `proxy.ts` |
+| Connection exhaustion | Bounded pg pool, statement timeout | `lib/db/pool-config.ts`, `lib/db/prisma.ts` |
+| Secret leakage in repo | gitleaks scan in CI | `.github/workflows/ci.yml` |
+
+## Key Rotation
+
+**S2S API keys:** create a new key for the tenant (admin developer portal) with the same scopes
+and IP allowlist; deploy it to the client; confirm traffic on the new key; revoke the old key.
+Keys are shown once and stored only as SHA-256 hashes, so rotation is always create-then-revoke.
+Rotate immediately on suspected exposure.
+
+**Webhook secrets** (`RAZORPAY_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`, `PARTNER_WEBHOOK_SECRET`):
+set the new secret at the provider, update the environment variable, redeploy, then verify a
+test event succeeds. For a zero-gap window, briefly accept both at the provider (dual secrets)
+where supported; otherwise rotate during low traffic. Also rotate `CRON_SECRET` and `AUTH_SECRET`
+the same way (rotating session tokens requires users to sign in again).
+
+**Disclosure contact:** see "Reporting a Vulnerability" above (GitHub private reporting, or
+himanshuyt21361@gmail.com).

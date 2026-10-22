@@ -21,13 +21,13 @@ export function CartDrawer() {
           </div>
           <div>
             <h2 className="font-medium text-foreground">Takeaway Bag</h2>
-            <p className="text-xs text-muted-foreground">{totalCount} items selected</p>
+            <p className="text-xs text-muted-foreground">{totalCount} {totalCount === 1 ? "item" : "items"} selected</p>
           </div>
         </div>
         <button
           onClick={closeCart}
           aria-label="Close cart"
-          className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="rounded-full p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
         >
           <X className="h-5 w-5" />
         </button>
@@ -93,16 +93,16 @@ export function CartDrawer() {
                     <div className="flex items-center rounded-md border border-border bg-background">
                       <button
                         onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        aria-label="Decrease quantity"
-                        className="p-1 text-muted-foreground hover:text-foreground"
+                        aria-label={`Decrease quantity of ${item.name}`}
+                        className="p-2 text-muted-foreground hover:text-foreground active:scale-90"
                       >
                         <Minus className="h-3.5 w-3.5" />
                       </button>
-                      <span className="w-7 text-center text-xs font-medium">{item.quantity}</span>
+                      <span aria-live="polite" className="w-7 text-center text-xs font-medium tabular">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        aria-label="Increase quantity"
-                        className="p-1 text-muted-foreground hover:text-foreground"
+                        aria-label={`Increase quantity of ${item.name}`}
+                        className="p-2 text-muted-foreground hover:text-foreground active:scale-90"
                       >
                         <Plus className="h-3.5 w-3.5" />
                       </button>
@@ -110,8 +110,8 @@ export function CartDrawer() {
 
                     <button
                       onClick={() => removeItem(item.id)}
-                      aria-label="Remove item"
-                      className="p-1 text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label={`Remove ${item.name}`}
+                      className="p-2 text-muted-foreground transition-colors hover:text-destructive active:scale-90"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -129,7 +129,7 @@ export function CartDrawer() {
           <div className="border-t border-border bg-muted/30 p-6 space-y-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock className="h-3.5 w-3.5 text-primary" />
-              <span>Prepared fresh in approximately 25–30 minutes</span>
+              <span>Prepared fresh in approximately 25-30 minutes</span>
             </div>
 
             <div className="flex items-baseline justify-between border-t border-border/60 pt-3">

@@ -1,3 +1,4 @@
+import { apiError } from "@/lib/api/errors";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -12,8 +13,11 @@ import {
 } from "@/lib/api/request-guards";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
 import { db } from "@/lib/db/prisma";
+import { createOrderSchema } from "@/lib/api/order-schema";
 import { createOrder, OrderValidationError } from "@/lib/services/orders";
-import type { OrderStatus } from "@/lib/generated/prisma/enums";
+import { PlanLimitError } from "@/lib/plans";
+import { recordOrderCreated, recordOrderFailed } from "@/lib/observability/metrics";
+import { OrderStatus } from "@/lib/generated/prisma/enums";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,41 +25,12 @@ export const runtime = "nodejs";
 /** Per-credential budget for order ingestion: 60 orders per rolling minute. */
 const ORDER_RATE_LIMIT_MAX = 60;
 const ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
+const ORDERS_LIST_DEFAULT_LIMIT = 50;
+const ORDERS_LIST_MAX_LIMIT = 100;
 
-const orderItemSchema = z.object({
-  dishId: z.string().uuid().optional(),
-  dishName: z.string().min(1).max(200),
-  quantity: z.number().int().positive().max(50),
-  // Accepted only for ad-hoc items without a dishId. When dishId is present the
-  // server always uses the authoritative catalog price and ignores this field.
-  price: z.number().positive().optional(),
-  station: z.string().max(40).optional(),
-  modifiers: z
-    .array(
-      z.object({
-        groupName: z.string().min(1).max(80),
-        optionName: z.string().min(1).max(80),
-        priceDelta: z.number().nonnegative(),
-      })
-    )
-    .optional(),
-});
-
-const createOrderSchema = z.object({
-  customerName: z.string().min(2).max(100),
-  customerEmail: z.string().email(),
-  customerPhone: z.string().min(8).max(20),
-  pickupTime: z.string().max(80).optional(),
-  diningMode: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY"]).optional(),
-  tableNumber: z.string().max(20).optional(),
-  tip: z.number().nonnegative().max(100000).optional(),
-  specialInstructions: z.string().max(500).optional(),
-  items: z.array(orderItemSchema).min(1, "At least one item is required"),
-  couponCode: z.string().max(40).optional(),
-  loyaltyPointsToRedeem: z.number().int().nonnegative().optional(),
-  paymentMethod: z.enum(["PAY_AT_PICKUP", "CARD_ONLINE"]).optional(),
-  paymentStatus: z.enum(["PENDING", "PAID", "PAY_AT_PICKUP"]).optional(),
-});
+const orderStatusSchema = z.enum(
+  Object.values(OrderStatus) as [OrderStatus, ...OrderStatus[]]
+);
 
 /**
  * GET /api/v1/orders
@@ -64,19 +39,43 @@ const createOrderSchema = z.object({
 export async function GET(request: Request) {
   const auth = await verifyS2SRequest(request, "orders:read");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status");
-  const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
+
+  // Reject malformed filters with a 400 instead of letting Prisma throw a 500
+  // (invalid enums) or silently return an unbounded/empty page (NaN take).
+  const rawStatus = searchParams.get("status");
+  const parsedStatus = rawStatus === null || rawStatus === ""
+    ? { success: true as const, data: undefined }
+    : orderStatusSchema.safeParse(rawStatus);
+  if (!parsedStatus.success) {
+    return apiError(400, "Invalid status filter", undefined, { allowed: Object.values(OrderStatus) });
+  }
+  const status = parsedStatus.data;
+
+  const rawLimit = searchParams.get("limit");
+  const requestedLimit =
+    rawLimit === null || rawLimit.trim() === ""
+      ? ORDERS_LIST_DEFAULT_LIMIT
+      : Number(rawLimit);
+  if (!Number.isFinite(requestedLimit)) {
+    return apiError(400, `Invalid limit. Expected an integer between 1 and ${ORDERS_LIST_MAX_LIMIT}.`);
+  }
+  const limit = Math.min(
+    ORDERS_LIST_MAX_LIMIT,
+    Math.max(1, Math.trunc(requestedLimit))
+  );
 
   const tenantId = auth.context.tenantId;
 
   const orders = await db.order.findMany({
     where: {
-      OR: [{ tenantId }, { tenantId: null }],
-      ...(status ? { orderStatus: status as OrderStatus } : {}),
+      // Strict tenant equality: legacy rows with a null tenantId are never
+      // readable through a tenant-scoped API key.
+      tenantId,
+      ...(status ? { orderStatus: status } : {}),
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -109,31 +108,25 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await verifyS2SRequest(request, "orders:write");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
   // Duplicate order acceptance is a money bug. In production we refuse to serve
   // the money path on per-instance memory, which cannot dedupe across instances.
   if (requiresDistributedBackend()) {
-    return NextResponse.json(
-      { error: "Order ingestion is unavailable: shared rate-limit and idempotency storage is not configured." },
-      { status: 503 }
-    );
+    return apiError(503, "Order ingestion is unavailable: shared rate-limit and idempotency storage is not configured.");
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return apiError(400, "Invalid JSON payload");
   }
 
   const parsed = createOrderSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
-      { status: 422 }
-    );
+    return apiError(422, "Validation failed", undefined, { details: parsed.error.flatten().fieldErrors });
   }
 
   const limit = await applyRateLimit(
@@ -142,15 +135,12 @@ export async function POST(request: Request) {
     ORDER_RATE_LIMIT_WINDOW_MS
   );
   if (!limit.success) {
-    return NextResponse.json(
-      { error: "Too many order requests. Please retry shortly." },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
-        },
-      }
-    );
+    return apiError(429, "Too many order requests. Please retry shortly.", "rate_limited", {
+      request,
+      headers: {
+        "Retry-After": String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
+      },
+    });
   }
 
   // The key names one operation for one tenant on this endpoint. The payload
@@ -173,20 +163,14 @@ export async function POST(request: Request) {
     }
 
     if (acquisition.status === "in_flight") {
-      return NextResponse.json(
-        { error: "A request with this Idempotency-Key is already in flight." },
-        { status: 409, headers: { "Retry-After": "1" } }
-      );
+      return apiError(409, "A request with this Idempotency-Key is already in flight.", "conflict", {
+        request,
+        headers: { "Retry-After": "1" },
+      });
     }
 
     if (acquisition.status === "conflict") {
-      return NextResponse.json(
-        {
-          error:
-            "This Idempotency-Key was already used for a different request body. Use a new key for a new order.",
-        },
-        { status: 409 }
-      );
+      return apiError(409, "This Idempotency-Key was already used for a different request body. Use a new key for a new order.");
     }
   }
 
@@ -194,8 +178,12 @@ export async function POST(request: Request) {
     const order = await createOrder({
       ...parsed.data,
       tenantId: auth.context.tenantId,
+      // This route is S2S-authenticated, so a POS may legitimately sell a
+      // custom line that is not in the catalog. The public storefront never can.
+      allowAdHoc: true,
     });
 
+    recordOrderCreated();
     const responseBody = { message: "Order successfully ingested", order };
     if (scope) {
       await completeIdempotency(scope, 201, responseBody, payloadHash);
@@ -210,9 +198,15 @@ export async function POST(request: Request) {
     }
 
     if (error instanceof OrderValidationError) {
-      return NextResponse.json({ error: error.message }, { status: 422 });
+      recordOrderFailed();
+      return apiError(422, error.message);
     }
+    if (error instanceof PlanLimitError) {
+      recordOrderFailed();
+      return apiError(402, error.message);
+    }
+    recordOrderFailed();
     console.error("Order ingestion failed:", error);
-    return NextResponse.json({ error: "Unable to create order" }, { status: 500 });
+    return apiError(500, "Unable to create order");
   }
 }

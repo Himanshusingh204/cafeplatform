@@ -11,6 +11,20 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Seeding database...");
 
+  // Every tenant-owned row needs an owner (AUDIT P2-4). The flagship tenant is
+  // the default for single-tenant installs; seeded idempotently.
+  const tenant = await prisma.tenant.upsert({
+    where: { slug: "spice-saffron" },
+    update: {},
+    create: {
+      slug: "spice-saffron",
+      name: "Spice & Saffron Flagship (Hauz Khas)",
+      subscriptionPlan: "ENTERPRISE",
+      plan: "PRO",
+    },
+  });
+  const tenantId = tenant.id;
+
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@spiceandsaffron.in";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "ChangeMe123!";
 
@@ -24,6 +38,7 @@ async function main() {
     });
     await prisma.admin.create({
       data: {
+        tenantId,
         email: adminEmail,
         passwordHash,
         name: process.env.ADMIN_NAME ?? "Café Owner",
@@ -60,9 +75,9 @@ async function main() {
 
   for (const setting of settings) {
     await prisma.setting.upsert({
-      where: { key: setting.key },
+      where: { tenantId_key: { tenantId, key: setting.key } },
       update: {},
-      create: { key: setting.key, value: setting.value },
+      create: { tenantId, key: setting.key, value: setting.value },
     });
   }
   console.log("Settings seeded.");
@@ -92,7 +107,9 @@ async function main() {
   const createdCategories: Record<string, string> = {};
   for (const category of categories) {
     const slug = slugify(category.name);
-    const existing = await prisma.category.findUnique({ where: { slug } });
+    const existing = await prisma.category.findUnique({
+      where: { tenantId_slug: { tenantId, slug } },
+    });
     if (existing) {
       await prisma.category.update({
         where: { id: existing.id },
@@ -103,6 +120,7 @@ async function main() {
     }
     const created = await prisma.category.create({
       data: {
+        tenantId,
         name: category.name,
         slug,
         description: category.description,
@@ -243,7 +261,9 @@ async function main() {
   let sortOrder = 10;
   for (const dish of dishes) {
     const slug = slugify(dish.name);
-    const existing = await prisma.dish.findUnique({ where: { slug } });
+    const existing = await prisma.dish.findUnique({
+      where: { tenantId_slug: { tenantId, slug } },
+    });
     if (existing) {
       await prisma.dish.update({
         where: { id: existing.id },
@@ -254,6 +274,7 @@ async function main() {
 
     await prisma.dish.create({
       data: {
+        tenantId,
         categoryId: createdCategories[dish.category],
         name: dish.name,
         slug,
@@ -282,11 +303,12 @@ async function main() {
     { title: "Crispy Samosa Platter", altText: "Golden samosas with mint and tamarind chutney", category: "FOOD" as const, image: "/images/gallery/samosa-platter.jpg" },
   ];
 
-  await prisma.galleryImage.deleteMany({});
+  await prisma.galleryImage.deleteMany({ where: { tenantId } });
   for (let i = 0; i < galleryImages.length; i++) {
     const image = galleryImages[i];
     await prisma.galleryImage.create({
       data: {
+        tenantId,
         title: image.title,
         altText: image.altText,
         imageUrl: image.image,
@@ -299,9 +321,10 @@ async function main() {
 
   // Seed default coupons
   await prisma.coupon.upsert({
-    where: { code: "WELCOME10" },
+    where: { tenantId_code: { tenantId, code: "WELCOME10" } },
     update: {},
     create: {
+      tenantId,
       code: "WELCOME10",
       discountPercent: 10,
       minOrder: 350,
@@ -309,9 +332,10 @@ async function main() {
     },
   });
   await prisma.coupon.upsert({
-    where: { code: "FEAST20" },
+    where: { tenantId_code: { tenantId, code: "FEAST20" } },
     update: {},
     create: {
+      tenantId,
       code: "FEAST20",
       discountPercent: 20,
       minOrder: 1000,
@@ -321,11 +345,12 @@ async function main() {
   console.log("Coupons seeded.");
 
   // Seed verified customer reviews
-  const reviewsCount = await prisma.review.count();
+  const reviewsCount = await prisma.review.count({ where: { tenantId } });
   if (reviewsCount === 0) {
     await prisma.review.createMany({
       data: [
         {
+          tenantId,
           customerName: "Aarav Sharma",
           rating: 5,
           title: "The Dal Makhani of dreams",
@@ -334,6 +359,7 @@ async function main() {
           isFeatured: true,
         },
         {
+          tenantId,
           customerName: "Priya Nair",
           rating: 5,
           title: "Unmatched ambience in Hauz Khas",
@@ -342,6 +368,7 @@ async function main() {
           isFeatured: true,
         },
         {
+          tenantId,
           customerName: "Rohan Mukherjee",
           rating: 5,
           title: "Authentic tandoor charcoal taste",
@@ -350,6 +377,7 @@ async function main() {
           isFeatured: true,
         },
         {
+          tenantId,
           customerName: "Meera Sen",
           rating: 4,
           title: "Wonderful family dinner",

@@ -14,6 +14,8 @@ import {
   Calendar,
   ShoppingBag,
   Tag,
+  PackageMinus,
+  CalendarClock,
 } from "lucide-react";
 import {
   getDashboardStats,
@@ -22,9 +24,11 @@ import {
   getCategoryBreakdown,
   getRecentMessages,
 } from "@/lib/services/dashboard";
-import { getReservationStats } from "@/lib/services/reservations";
+import { getReservationStats, listReservationsAdmin } from "@/lib/services/reservations";
 import { getOrderStats } from "@/lib/services/orders";
+import { getInventoryList } from "@/lib/services/inventory";
 import { getSettings } from "@/lib/services/settings";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { formatPrice } from "@/lib/utils/format";
 import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
@@ -51,17 +55,22 @@ const actionLabels: Record<string, string> = {
 export default async function AdminDashboardPage() {
   const admin = await requirePermission(permissions.VIEW_MENU);
 
-  const [stats, activity, recentDishes, categories, recentMessages, settings, resStats, orderStats] =
+  const tenantId = await getAdminTenantId(admin);
+  const [stats, activity, recentDishes, categories, recentMessages, settings, resStats, orderStats, pendingToday, inventory] =
     await Promise.all([
-      getDashboardStats(),
+      getDashboardStats(tenantId),
       getRecentActivity(5),
-      getRecentDishes(5),
-      getCategoryBreakdown(),
-      getRecentMessages(4),
-      getSettings(),
+      getRecentDishes(tenantId, 5),
+      getCategoryBreakdown(tenantId),
+      getRecentMessages(tenantId, 4),
+      getSettings(tenantId),
       getReservationStats(),
-      getOrderStats(),
+      getOrderStats(tenantId),
+      listReservationsAdmin({ status: "PENDING", date: new Date().toISOString(), pageSize: 1 }),
+      getInventoryList().catch(() => []),
     ]);
+  const lowStockCount = inventory.filter((i) => i.isLowStock).length;
+  const outOfStockCount = inventory.filter((i) => i.isOutOfStock).length;
 
   let hoursToday = "";
   try {
@@ -96,6 +105,26 @@ export default async function AdminDashboardPage() {
       icon: Calendar,
       href: "/admin/reservations",
       color: "text-blue-500",
+    },
+    {
+      label: "Pending Today",
+      value: pendingToday.total,
+      subtext: pendingToday.total > 0 ? "Bookings for today awaiting confirmation" : "No unconfirmed bookings today",
+      badge: pendingToday.total > 0 ? "CONFIRM" : undefined,
+      badgeColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+      icon: CalendarClock,
+      href: "/admin/reservations",
+      color: "text-blue-500",
+    },
+    {
+      label: "Low Stock",
+      value: lowStockCount,
+      subtext: inventory.length === 0 ? "No ingredients tracked yet" : outOfStockCount > 0 ? `${outOfStockCount} out of stock` : "At or below par level",
+      badge: lowStockCount > 0 ? "RESTOCK" : undefined,
+      badgeColor: "bg-destructive/15 text-destructive",
+      icon: PackageMinus,
+      href: "/admin/inventory",
+      color: "text-destructive",
     },
     {
       label: "Menu Items",
@@ -239,7 +268,7 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Key Metric Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {cards.map((card) => (
           <Link
             key={card.label}

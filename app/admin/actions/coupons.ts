@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
 import { db } from "@/lib/db/prisma";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 
 export interface ActionState<T = unknown> {
   ok: boolean;
@@ -12,10 +13,12 @@ export interface ActionState<T = unknown> {
 }
 
 export async function listCouponsAction() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
 
   try {
+    const tenantId = await getAdminTenantId(admin);
     const coupons = await db.coupon.findMany({
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
     });
 
@@ -44,7 +47,7 @@ export async function createCouponAction(input: {
   validUntil?: string | null;
   isActive?: boolean;
 }): Promise<ActionState> {
-  await requirePermission(permissions.EDIT_MENU);
+  const admin = await requirePermission(permissions.EDIT_MENU);
 
   const cleanCode = input.code.trim().toUpperCase();
   if (!cleanCode || cleanCode.length < 3) {
@@ -56,13 +59,17 @@ export async function createCouponAction(input: {
   }
 
   try {
-    const existing = await db.coupon.findUnique({ where: { code: cleanCode } });
+    const tenantId = await getAdminTenantId(admin);
+    const existing = await db.coupon.findUnique({
+      where: { tenantId_code: { tenantId, code: cleanCode } },
+    });
     if (existing) {
       return { ok: false, error: `Coupon code '${cleanCode}' already exists.` };
     }
 
     await db.coupon.create({
       data: {
+        tenantId,
         code: cleanCode,
         discountPercent: input.discountPercent,
         minOrder: input.minOrder ? input.minOrder : null,
@@ -80,13 +87,15 @@ export async function createCouponAction(input: {
 }
 
 export async function toggleCouponAction(id: string, isActive: boolean): Promise<ActionState> {
-  await requirePermission(permissions.EDIT_MENU);
+  const admin = await requirePermission(permissions.EDIT_MENU);
 
   try {
-    await db.coupon.update({
-      where: { id },
+    const tenantId = await getAdminTenantId(admin);
+    const { count } = await db.coupon.updateMany({
+      where: { id, tenantId },
       data: { isActive },
     });
+    if (count === 0) return { ok: false, error: "Coupon not found." };
 
     revalidatePath("/admin/coupons");
     return { ok: true };
@@ -97,10 +106,12 @@ export async function toggleCouponAction(id: string, isActive: boolean): Promise
 }
 
 export async function deleteCouponAction(id: string): Promise<ActionState> {
-  await requirePermission(permissions.DELETE_MENU);
+  const admin = await requirePermission(permissions.DELETE_MENU);
 
   try {
-    await db.coupon.delete({ where: { id } });
+    const tenantId = await getAdminTenantId(admin);
+    const { count } = await db.coupon.deleteMany({ where: { id, tenantId } });
+    if (count === 0) return { ok: false, error: "Coupon not found." };
     revalidatePath("/admin/coupons");
     return { ok: true };
   } catch (error) {

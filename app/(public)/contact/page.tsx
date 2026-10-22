@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { Clock, Mail, MapPin, Phone } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContactForm } from "@/components/contact/contact-form";
@@ -6,12 +7,12 @@ import { getSettings } from "@/lib/services/settings";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Contact",
   description:
     "Visit us in Hauz Khas, call us, or send a message. Address, phone number, opening hours and contact form.",
-  alternates: { canonical: "/contact" },
-};
+  path: "/contact",
+});
 
 export default async function ContactPage() {
   const settings = await getSettings();

@@ -26,16 +26,47 @@
 
 ## Overview
 
-**Spice & Saffron** is a full-stack, multi-tenant platform for running an Indian café or restaurant end to end: a customer-facing storefront with menu, cart, checkout and order tracking; a kitchen display system (KDS) that streams tickets in real time; a role-based admin CMS for the menu, content, reservations, inventory, loyalty and reporting; and a machine-to-machine (S2S) API for POS systems and delivery aggregators.
+**Spice & Saffron** is a full-stack, multi-tenant platform for running an Indian cafe or restaurant end to end: a customer storefront (menu, cart, checkout, order tracking), a kitchen display system fed by server-sent events, a role-based admin CMS, and a scoped machine-to-machine (S2S) API for POS systems and delivery aggregators.
 
-The codebase is organised around a single, shared domain layer (`lib/services/*`) that is consumed by two thin runtime adapters:
+**In 60 seconds**
 
-- **Next.js Route Handlers** (`app/api/v1/*`) — the primary production API on Vercel.
-- **Express** (`server/api.ts`, port 4000) — retained for self-hosting, long-running workers and local development.
+- **What it is:** one codebase serving the storefront, admin CMS, KDS and a versioned REST API, with the money path (pricing, coupons, loyalty, inventory) in one shared service layer.
+- **Stack:** Next.js 16 (App Router), React 19, TypeScript, Prisma 7 on PostgreSQL, Express 5 adapter for self-hosting, Zod, Vitest, Playwright.
+- **Highlights:** server-authoritative pricing, idempotent order ingestion, integer-money arithmetic, S3-compatible uploads, fail-closed production guards, migration-safe deploys, CI with a real Postgres.
 
-Both adapters talk to the same services, the same Prisma schema and the same PostgreSQL database, so the two runtimes cannot drift.
+### Architecture at a glance
 
-> **A note on honesty.** This README describes the system as it exists today, including the parts that are not finished. Several production-critical items are still open (in-process state, tenant isolation, uploads, transactional email, the un-deployed Express API). These are listed concretely under [Current Limitations](#current-limitations) and tracked in [`docs/AUDIT.md`](./docs/AUDIT.md) and [`docs/ROADMAP.md`](./docs/ROADMAP.md). Nothing here is aspiration dressed up as fact.
+```mermaid
+flowchart LR
+    Browser["Storefront / Admin / KDS"] --> Next["Next.js app<br/>pages, server actions, /api/v1"]
+    Partner["POS / aggregator"] -->|"S2S API key"| Next
+    Partner -->|"S2S API key"| Express["Express adapter<br/>server/app.ts"]
+    Next --> Services["Shared services<br/>lib/services: orders, menu, loyalty"]
+    Express --> Services
+    Services --> DB[("PostgreSQL via Prisma")]
+    Services --> Redis[("Redis: rate limit,<br/>idempotency, cache")]
+    Services --> S3[("S3-compatible storage")]
+```
+
+Both HTTP adapters are thin: validation, auth and error mapping at the edge, all business rules in `lib/services`. A parity test in `tests/parity` compares their status codes and body shapes.
+
+### Engineering problems solved
+
+| Problem | Solution |
+| :--- | :--- |
+| Clients could send their own prices | Catalog dishes are always priced server-side from the database; client prices are honoured only for ad-hoc S2S lines |
+| Retried or duplicated order requests | `Idempotency-Key` support namespaced by tenant and operation, with a payload fingerprint so a reused key with a different body is rejected (409) |
+| Float rounding in totals | Money maths in integer minor units (`lib/money`), rounded half-up once at the total; DB columns are `Decimal(10,2)` |
+| Unsafe uploads fallback | Replaced the data-URL fallback with S3-compatible object storage |
+| Silent degradation in production | Order ingestion refuses to run (503) in production without a shared Redis backend, instead of deduplicating per instance |
+| Migrations racing or running on previews | `scripts/vercel-build.mjs` migrates on production builds only, then verifies the API surface |
+| Two runtimes drifting apart | Express and Next call the same `createOrder` and menu services; parity tests compare responses |
+
+### Quality signals
+
+CI runs lint, typecheck, Vitest against a Postgres service container, and a production build on every push and pull request. Replace the placeholders once the repository is public:
+
+`[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)` and a coverage badge once `npm run test:coverage` is wired to a reporting service.
 
 ---
 
@@ -269,6 +300,11 @@ Everything that varies between environments is configuration, not hardcoded valu
 | :--- | :--- | :--- |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `AUTH_SECRET` | Yes | Session token signing secret |
+| `ALLOW_DEFAULT_TENANT` | Single-tenant production | Set `true` or `next build` and requests fail with `TenantResolutionError` |
+| `ALLOW_IN_MEMORY_STATE` | No | Production boot requires Upstash Redis unless this is `true` (single instance only) |
+| `CRON_SECRET` | Yes in production | Authorises `/api/cron/outbox` |
+| `METRICS_TOKEN` | No | Bearer token for `/api/metrics`; the endpoint returns 404 when unset |
+| `TRUST_PROXY_HOPS` | No | Reverse proxies in front of the Express service (default 0); used for the API-key IP allowlist |
 | `APP_URL` | Yes | Canonical origin (also used for CSRF origin checks) |
 | `API_PORT` | Self-host | Port for the Express API (default `4000`) |
 | `NEXT_PUBLIC_API_URL` | Self-host | Base URL the browser uses to reach the Express API |
@@ -331,6 +367,15 @@ implements a subset of this surface, and the two are being brought into line
 | `/api/v1/coupons/validate` | POST | Public | Express only |
 | `/api/v1/system/metrics` | GET | Public | Express only |
 | `/api/auth/login`, `/api/auth/logout`, `/api/contact`, `/api/upload`, `/api/notifications` | POST / GET | Mixed (session, public, SSE) | Next |
+
+Error responses from `app/api/v1/*` keep the legacy `{ "error": "<message>" }` body and
+additively carry `code` and `requestId`, for example
+`{ "error": "Order not found", "code": "not_found", "requestId": "..." }`. `code` is
+stable and machine-readable: `unauthorized`, `forbidden`, `invalid_request`,
+`rate_limited`, `conflict`, `not_found`, `service_unavailable`, `internal_error`.
+`requestId` echoes a valid inbound `x-request-id` or is generated, and is also
+returned as the `x-request-id` header. Validation errors may include `details`.
+The helper is `apiError()` in `lib/api/errors.ts`.
 
 S2S requests authenticate with `Authorization: Bearer sp_live_...` and require the appropriate scope (for example `orders:write`).
 

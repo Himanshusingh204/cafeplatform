@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { MessageList } from "@/components/admin/message-list";
 import { listMessagesAdmin } from "@/lib/services/messages";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
 
@@ -13,11 +14,13 @@ interface MessagesPageProps {
 }
 
 export default async function AdminMessagesPage({ searchParams }: MessagesPageProps) {
-  await requirePermission(permissions.VIEW_MESSAGES);
+  const admin = await requirePermission(permissions.VIEW_MESSAGES);
+  const tenantId = await getAdminTenantId(admin);
   const query = await searchParams;
   const status = typeof query.status === "string" ? query.status : undefined;
 
   const { items } = await listMessagesAdmin({
+    tenantId,
     status: status && ["NEW", "READ", "REPLIED", "ARCHIVED"].includes(status) ? status : undefined,
     page: 1,
     pageSize: 100,

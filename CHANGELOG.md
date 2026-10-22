@@ -7,7 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hardening round (review follow-ups)
+
+- API-key `ipAllowlist` is now enforced; Express derives the caller address from `req.ip` (`TRUST_PROXY_HOPS`).
+- Admin order actions, list, stats and the KDS stream are scoped to the admin's tenant; order-time dish lookups are tenant-scoped.
+- Payment webhooks reject captures on cancelled/completed orders or with a mismatched amount (logged at error) and claim the order atomically.
+- Storefront no longer sends its own receipt (the outbox does); in-flight idempotency lock capped at 120 s.
+- Suite: 56 files, 388 tests; production build verified with `ALLOW_DEFAULT_TENANT=true`.
+
+### Multi-tenant completeness and plans (Phase 2 and 9 slice, W5)
+
+- Migration `20261023090000_tenant_scope_remaining`: `tenantId` (NOT NULL, FK `ON DELETE RESTRICT`) on
+  `GalleryImage`, `ContactMessage`, `Review`, `Setting`, `Coupon`; `Category`/`Dish` `tenantId` made NOT NULL.
+  Expand, backfill to the default tenant (created only if orphan rows exist), constrain. AUDIT P2-4.
+- Migration `20261023100000_per_tenant_uniques`: `(tenantId, slug)` on `Category`/`Dish`, `(tenantId, code)` on
+  `Coupon`, `(tenantId, key)` on `Setting` replace the global uniques. AUDIT P2-5.
+- Migration `20261023110000_tenant_plan_tier`: `Tenant.plan` enum (`FREE`, `STARTER`, `PRO`), default `STARTER`.
+- Services, admin actions, pages, the contact route, the notifications stream and the public actions are tenant-scoped;
+  admins act on `Admin.tenantId` (falling back to the default tenant) via `lib/auth/tenant-context.ts`.
+  `SessionAdmin` now carries `tenantId`.
+- `lib/db/tenant.ts`: 60 s in-process cache for slug/id lookups, `updateTenant`/`invalidateTenant`/`clearTenantCache`;
+  the read path no longer writes, and the explicit default slug is only bootstrapped where the default tenant is
+  allowed. AUDIT P2-6.
+- `lib/plans`: typed `PLAN_LIMITS`, `assertWithinPlan`, `PlanLimitError` (HTTP 402 / `plan_limit_exceeded`), enforced on
+  dish, gallery image, API key and monthly order creation; usage shown on the admin settings page.
+- Seed creates the flagship tenant and owns every seeded row. New tests: tenant cache, plan limits, tenant isolation.
+
+### SEO and performance (Phase 6, W2)
+
+- `lib/seo/metadata.ts` `pageMetadata()` gives every public page unique title, description, canonical, Open Graph
+  and Twitter metadata; home, loyalty and waitlist now export metadata; `/order/[id]` is noindex.
+- JSON-LD for `/faq` and `/menu/[slug]` now uses the typed builders in `lib/seo/jsonld.ts` (FAQPage, MenuItem,
+  BreadcrumbList) and `serializeJsonLd` (escapes `<`). Unit tests in `tests/unit/seo-jsonld.test.ts`.
+- All raster images under `public/images` re-encoded (28 MB to 4.2 MB); page assets are under 200 KB. The
+  optimiser script no longer fails on Windows (sharp cache disabled).
+- Heading font declared with `display: "swap"` on both `next/font` families.
+
+### Observability (Phase 7, partial)
+
+- `GET /api/ready` (and Express `/ready`) readiness probe: Postgres, Redis, outbox backlog; 503 only
+  when Postgres is down. `/api/health` remains dependency-free liveness; Express health moved to
+  `server/routes/health.ts`.
+- `lib/observability`: AsyncLocalStorage request context, secret/PII redaction in `logger`, dependency-free
+  Prometheus metrics, `GET /api/metrics` (bearer `METRICS_TOKEN`, 404 when unset) with outbox depth/lag/dead
+  gauges; order and outbox counters wired. `apiError` logs 5xx with `requestId`. Runbooks in OPERATIONS section 20.
+
+### Quality gates (Phase 5, partial)
+
+- `@vitest/coverage-v8` and `@axe-core/playwright` added; coverage thresholds (lines 55) in `vitest.config.ts`.
+- `tests/e2e/a11y.spec.ts` (axe, light and dark); `lighthouserc.json`; CI gains coverage artifact,
+  non-blocking prod-dependency audit, gitleaks and a non-blocking Lighthouse job.
+- New pure unit tests for error bodies, outbox backoff and request-guard helpers.
+
+### Runtime state (Phase 3, partial)
+
+- Durable outbox: `OutboxEvent` model + migration `20261022090000_outbox_events`; `lib/outbox`
+  (`enqueueOutboxEvent`, `processOutbox` using `FOR UPDATE SKIP LOCKED`, exponential backoff,
+  DEAD after 6 attempts). `createOrder` writes the receipt event in the order transaction.
+- `GET /api/cron/outbox` (bearer `CRON_SECRET`, constant-time; 503 in production if unset) and
+  a `vercel.json` cron; opportunistic `after()` drain post-order.
+- Redis cache invalidation uses `SCAN` instead of `KEYS` (P1-3); queue metrics are real
+  counters (P2-7); Express KDS broadcast publishes the tenant UUID (P2-8).
+
+### Database / tenancy (Phase 2)
+
+- `resolveTenant` fails closed (P0-3): throws `TenantResolutionError` for unknown/inactive slugs and,
+  in production, when no tenant is given unless `ALLOW_DEFAULT_TENANT=true`.
+- Migration `20261021120000_tenant_hardening`: `Order.tenantId` backfilled and `NOT NULL`
+  (FK now `ON DELETE RESTRICT`); `Tenant.taxRatePercent` (nullable) and `Tenant.currency` added
+  (P1-7 / D1). `createOrder` resolves the order's tenant and applies its tax rate.
+
+### Security
+
+- CORS on the standalone API now uses an explicit allow-list from `APP_URL`, `CLIENT_URL` and
+  `ALLOWED_ORIGINS` (`server/middleware/cors.ts`); no wildcard with credentials (P1-1).
+- S2S `lastUsedAt` is written at most once per 60 s per key (P1-5); key digests are confirmed
+  with `crypto.timingSafeEqual` and the misleading comment is corrected (P1-6).
+- Loyalty lookup validates input with zod and is verified authenticated-by-purchase, rate limited
+  and read-only (P1-10).
+- Login throttles by IP before parsing the body; logout and upload check the request Origin; the
+  order and waitlist id params are validated; error logs no longer carry full error objects.
+
 ### Added
+
+- `server/app.ts`: the Express app, exported without listening. `server/api.ts` is now only
+  the process entry. `server/routes/` holds the menu and orders routers and the S2S adapter.
+- `POST /api/v1/orders` on the Express adapter, with the same validation, rate limit,
+  scoped idempotency and error mapping as the Next route, delegating to `createOrder`.
+- `getApiMenuCatalog` in `lib/services/menu.ts`: one tenant-scoped, cached menu catalog used by
+  both adapters.
+- `tests/parity/`: adapter parity smoke tests (status and body shape, Next vs Express).
+- `.github/dependabot.yml`; `test:parity` and `test:coverage` scripts and a vitest coverage block
+  (requires `@vitest/coverage-v8`, see `docs/TESTING.md`).
 
 - `LICENSE` — proprietary, source-available license with a personal-use grant
   and a commercial-licensing requirement.
@@ -28,6 +119,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Copyright and licensing notices across the project.
 
 ### Changed
+
+- Express `GET /api/v1/menu` now requires an S2S key with `menu:read` and returns the same
+  tenant-scoped body as the Next route (it was unauthenticated and returned a different shape).
+  Prices in that body are numbers rather than Decimal strings.
 
 - `README.md` fully rewritten for GitHub rendering, factual accuracy and
   licensing clarity.

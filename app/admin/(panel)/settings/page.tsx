@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
 import { SettingsForm } from "@/components/admin/settings-form";
 import { getSettingsFresh } from "@/lib/services/settings";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
+import { getPlanUsage } from "@/lib/plans";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
-  await requirePermission(permissions.MANAGE_SETTINGS);
-  const settings = await getSettingsFresh();
+  const admin = await requirePermission(permissions.MANAGE_SETTINGS);
+  const tenantId = await getAdminTenantId(admin);
+  const [settings, planUsage] = await Promise.all([getSettingsFresh(tenantId), getPlanUsage(tenantId)]);
 
   return (
     <div className="space-y-6">
@@ -21,6 +24,8 @@ export default async function AdminSettingsPage() {
         </p>
       </div>
       <SettingsForm
+        planUsage={planUsage}
+        canEdit={hasPermission(admin.role, permissions.MANAGE_SETTINGS)}
         values={{
           cafeName: settings.cafeName,
           tagline: settings.tagline,

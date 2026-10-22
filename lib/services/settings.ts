@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db/prisma";
 import { site } from "@/config/site";
 import { logAction } from "@/lib/services/audit";
+import { resolveTenant } from "@/lib/db/tenant";
 
 const DEFAULTS: Record<string, string> = {
   cafeName: site.name,
@@ -32,9 +33,9 @@ export function normalizeSettings(rows: { key: string; value: string }[]): SiteS
 }
 
 export const getSettingsCached = unstable_cache(
-  async (): Promise<SiteSettings> => {
+  async (tenantId: string): Promise<SiteSettings> => {
     try {
-      const rows = await db.setting.findMany({ select: { key: true, value: true } });
+      const rows = await db.setting.findMany({ where: { tenantId }, select: { key: true, value: true } });
       return normalizeSettings(rows);
     } catch (error) {
       console.error("getSettingsCached: database query failed, returning defaults", error);
@@ -45,13 +46,13 @@ export const getSettingsCached = unstable_cache(
   { tags: ["settings"], revalidate: 300 }
 );
 
-export async function getSettings(): Promise<SiteSettings> {
-  return getSettingsCached();
+export async function getSettings(tenantId?: string): Promise<SiteSettings> {
+  return getSettingsCached(tenantId ?? (await resolveTenant()).id);
 }
 
-export async function getSettingsFresh(): Promise<SiteSettings> {
+export async function getSettingsFresh(tenantId: string): Promise<SiteSettings> {
   try {
-    const rows = await db.setting.findMany({ select: { key: true, value: true } });
+    const rows = await db.setting.findMany({ where: { tenantId }, select: { key: true, value: true } });
     return normalizeSettings(rows);
   } catch (error) {
     console.error("getSettingsFresh: database query failed, returning defaults", error);
@@ -60,6 +61,7 @@ export async function getSettingsFresh(): Promise<SiteSettings> {
 }
 
 export async function updateSettings(
+  tenantId: string,
   input: Omit<SiteSettings, "openingHours"> & { openingHours?: string },
   actorId?: string | null
 ) {
@@ -68,8 +70,8 @@ export async function updateSettings(
   await db.$transaction(
     entries.map(([key, value]) =>
       db.setting.upsert({
-        where: { key },
-        create: { key, value },
+        where: { tenantId_key: { tenantId, key } },
+        create: { tenantId, key, value },
         update: { value },
       })
     )

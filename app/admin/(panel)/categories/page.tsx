@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { CategoryManager } from "@/components/admin/category-manager";
 import { listCategoriesAdmin } from "@/lib/services/menu";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { hasPermission, permissions } from "@/config/roles";
 import { requirePermission } from "@/lib/auth/guards";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminCategoriesPage() {
   const admin = await requirePermission(permissions.VIEW_MENU);
-  const categories = await listCategoriesAdmin();
+  const categories = await listCategoriesAdmin(await getAdminTenantId(admin));
 
   return (
     <CategoryManager
@@ -24,6 +25,8 @@ export default async function AdminCategoriesPage() {
         sortOrder: category.sortOrder,
         dishCount: category._count.dishes,
       }))}
+      canCreate={hasPermission(admin.role, permissions.CREATE_MENU)}
+      canEdit={hasPermission(admin.role, permissions.EDIT_MENU)}
       canDelete={hasPermission(admin.role, permissions.DELETE_MENU)}
     />
   );

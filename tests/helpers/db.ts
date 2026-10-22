@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { db } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/passwords";
+import { resolveTenant } from "@/lib/db/tenant";
 
 const TRUNCATABLE_TABLES = new Set([
   "Admin",
@@ -20,6 +21,9 @@ const TRUNCATABLE_TABLES = new Set([
   "WaitlistEntry",
   "CustomerUser",
   "LoyaltyLedger",
+  "OutboxEvent",
+  "Review",
+  "Coupon",
 ]);
 
 // Test database only; names are validated against an allow-list.
@@ -31,6 +35,14 @@ export async function truncateTables(...names: string[]) {
   }
   const list = names.map((name) => `"${name}"`).join(", ");
   await db.$executeRawUnsafe(`TRUNCATE TABLE ${list} CASCADE`);
+}
+
+let cachedTestTenantId: string | null = null;
+
+/** The default tenant's id (created on first use, test DB only). */
+export async function testTenantId(): Promise<string> {
+  if (!cachedTestTenantId) cachedTestTenantId = (await resolveTenant()).id;
+  return cachedTestTenantId;
 }
 
 export function uniqueSuffix(): string {
@@ -53,6 +65,7 @@ export async function makeCategory(overrides: Partial<{ name: string; slug: stri
   const suffix = uniqueSuffix();
   return db.category.create({
     data: {
+      tenantId: await testTenantId(),
       name: overrides.name ?? `Test Category ${suffix}`,
       slug: overrides.slug ?? `test-category-${suffix}`,
       isActive: overrides.isActive ?? true,
@@ -73,6 +86,8 @@ export interface DishOverrides {
 export function dishInput(categoryId: string, overrides: DishOverrides = {}) {
   const suffix = uniqueSuffix();
   return {
+    // makeCategory() (always called first) has populated the tenant id.
+    tenantId: cachedTestTenantId as string,
     name: overrides.name ?? `Test Dish ${suffix}`,
     categoryId,
     shortDescription: "A short test description.",

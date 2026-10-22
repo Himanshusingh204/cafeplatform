@@ -1,5 +1,8 @@
 import "server-only";
 
+import { getRequestId } from "@/lib/observability/context";
+import { redact } from "@/lib/observability/redact";
+
 type Level = "info" | "warn" | "error";
 
 interface LogFields {
@@ -17,7 +20,8 @@ function write(level: Level, entry: LogInput) {
   const output = JSON.stringify({
     timestamp: new Date().toISOString(),
     level,
-    ...entry,
+    ...(redact(entry) as Record<string, unknown>),
+    ...(entry.requestId || !getRequestId() ? {} : { requestId: getRequestId() }),
   });
 
   if (level === "error") {

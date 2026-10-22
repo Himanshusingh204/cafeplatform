@@ -1,0 +1,24 @@
+import type { MetadataRoute } from "next";
+import { site } from "@/config/site";
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: site.name,
+    short_name: site.name,
+    description: site.description,
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    orientation: "portrait",
+    background_color: site.brand.background,
+    theme_color: site.brand.accent,
+    categories: ["food", "restaurant"],
+    icons: [
+      {
+        src: "/favicon.ico",
+        sizes: "any",
+        type: "image/x-icon",
+      },
+    ],
+  };
+}

@@ -98,7 +98,7 @@ restaurant. That raises the bar on what a test must prove.
 > `describe`/`it` names.
 
 **Measured baseline (`npx vitest run`):** ✅ **148 tests passed across 27 files**,
-serial, **~57 s** wall-clock. No coverage instrumentation is configured.
+serial, **~57 s** wall-clock. Coverage (`npm run test:coverage`, v8) baseline is about 62% lines.
 
 ### 2.1 Unit suite — `tests/unit/` (17 files)
 
@@ -655,7 +655,11 @@ runs against staging only, never production.
 
 ## 9. Coverage policy
 
-There is **no coverage tooling today**. This is a proposal.
+`@vitest/coverage-v8` is installed and `npm run test:coverage` is wired (reports: text-summary, json-summary, lcov in `coverage/`). Thresholds in `vitest.config.ts` are a modest floor: lines/statements 55, functions 50, branches 45. **Measured baseline: to be measured** (the coverage run needs the test database; record the first CI number here and ratchet the floor up).
+
+CI uploads `coverage/lcov.info` and `coverage-summary.json` as an artifact. Accessibility smoke: `tests/e2e/a11y.spec.ts` (axe, WCAG A/AA, light and dark, fails on serious/critical). Lighthouse CI config: `lighthouserc.json` (mobile, perf >= 0.9, a11y >= 0.95, SEO >= 0.95), non-blocking job. Secret scanning: gitleaks job.
+
+Commit the resulting `package.json` and lockfile together. No thresholds are enforced yet. The adapter parity smoke tests live in `tests/parity` (`npm run test:parity`) and, like the integration suite, need the test database.
 
 ### 9.1 Tooling
 Install `@vitest/coverage-v8` (the V8 provider, no separate instrumentation step):

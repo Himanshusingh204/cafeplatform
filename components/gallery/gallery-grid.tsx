@@ -19,7 +19,7 @@ export function GalleryGrid({ images }: GalleryGridProps) {
       <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
         <p className="heading-display text-2xl">Photographs coming soon</p>
         <p className="mt-2 text-muted-foreground">
-          We are busy cooking — new photos are on their way.
+          We are busy cooking - new photos are on their way.
         </p>
       </div>
     );

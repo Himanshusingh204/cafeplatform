@@ -6,7 +6,8 @@ import Image from "next/image";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, StatusMessage, controlClass, mapServerError, type FieldErrors } from "@/components/admin/form-field";
+import { cn } from "@/lib/utils/cn";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { ImageUploader } from "@/components/admin/image-uploader";
@@ -24,57 +25,78 @@ export interface AdminGalleryRow {
 
 const CATEGORIES = ["INTERIOR", "FOOD", "CHEF", "EVENTS", "ATMOSPHERE"] as const;
 
-export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
+export function GalleryManager({ images, canManage = true }: { images: AdminGalleryRow[]; canManage?: boolean }) {
   const router = useRouter();
   const [editing, setEditing] = React.useState<AdminGalleryRow | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [deleting, setDeleting] = React.useState<AdminGalleryRow | null>(null);
-  const [pending, setPending] = React.useState(false);
+  const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({});
 
   const modalOpen = creating || editing !== null;
 
-  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+  function closeModal() {
+    setCreating(false);
+    setEditing(null);
+    setFieldErrors({});
+    setError(null);
+  }
+
+  function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
 
     const data = new FormData(event.currentTarget);
-    setPending(true);
+    const errors: FieldErrors = {};
+    if (String(data.get("title") ?? "").trim().length < 2) errors.title = "Enter a title of at least 2 characters.";
+    if (String(data.get("altText") ?? "").trim().length < 2) errors.altText = "Describe the image in at least 2 characters.";
+    if (!String(data.get("imageUrl") ?? "").trim()) errors.imageUrl = "Upload an image or provide an image path.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError("Please fix the highlighted fields.");
+      return;
+    }
     setError(null);
 
-    const result = await saveGalleryImageAction({
-      ...(editing ? { id: editing.id } : {}),
-      title: data.get("title"),
-      altText: data.get("altText"),
-      imageUrl: data.get("imageUrl"),
-      category: data.get("category"),
-      sortOrder: data.get("sortOrder"),
-      isPublished: data.get("isPublished") === "on",
+    startTransition(async () => {
+      const result = await saveGalleryImageAction({
+        ...(editing ? { id: editing.id } : {}),
+        title: data.get("title"),
+        altText: data.get("altText"),
+        imageUrl: data.get("imageUrl"),
+        category: data.get("category"),
+        sortOrder: data.get("sortOrder"),
+        isPublished: data.get("isPublished") === "on",
+      });
+
+      if (!result.ok) {
+        const message = result.error ?? "Could not save the image.";
+        setError(message);
+        setFieldErrors(mapServerError(message, [[/image path|image url|provide an image/i, "imageUrl"], [/title/i, "title"], [/alt/i, "altText"]]));
+        return;
+      }
+
+      setNotice(editing ? "Image saved." : "Image added.");
+      closeModal();
+      router.refresh();
     });
-
-    setPending(false);
-    if (!result.ok) {
-      setError(result.error ?? "Could not save the image.");
-      return;
-    }
-
-    setCreating(false);
-    setEditing(null);
-    router.refresh();
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!deleting || pending) return;
-    setPending(true);
-    const result = await deleteGalleryImageAction(deleting.id);
-    setPending(false);
-    if (!result.ok) {
-      setError(result.error ?? "Could not delete the image.");
+    const target = deleting;
+    startTransition(async () => {
+      const result = await deleteGalleryImageAction(target.id);
       setDeleting(null);
-      return;
-    }
-    setDeleting(null);
-    router.refresh();
+      if (!result.ok) {
+        setError(result.error ?? "Could not delete the image.");
+        return;
+      }
+      setNotice(`${target.title} deleted.`);
+      router.refresh();
+    });
   }
 
   return (
@@ -86,29 +108,28 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
             Photographs shown on the public gallery page.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setError(null);
-            setEditing(null);
-            setCreating(true);
-          }}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Add image
-        </Button>
+        {canManage ? (
+          <Button
+            onClick={() => {
+              setError(null);
+              setNotice(null);
+              setEditing(null);
+              setCreating(true);
+            }}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add image
+          </Button>
+        ) : null}
       </div>
 
-      {error && !modalOpen ? (
-        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {!modalOpen ? <StatusMessage ok={notice} error={error} /> : null}
 
       {images.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
           <p className="heading-display text-xl">No gallery images yet</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Add your first image — place files in public/images/gallery/ and reference the path here.
+            {canManage ? "Select Add image above to upload your first photo, or paste a path to a file in public/images/gallery/." : "Ask an admin or editor to add the first photo."}
           </p>
         </div>
       ) : (
@@ -128,11 +149,13 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   {image.category.toLowerCase()} · #{image.sortOrder}
                 </p>
+                {canManage ? (
                 <div className="flex justify-end gap-1 pt-1">
                   <button
                     type="button"
                     onClick={() => {
                       setError(null);
+                      setNotice(null);
                       setCreating(false);
                       setEditing(image);
                     }}
@@ -152,40 +175,36 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
                     <span className="sr-only">Delete {image.title}</span>
                   </button>
                 </div>
+                ) : null}
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => {
-          setCreating(false);
-          setEditing(null);
-        }}
-        title={editing ? `Edit ${editing.title}` : "Add gallery image"}
-      >
-        <form onSubmit={handleSave} className="space-y-5">
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Edit ${editing.title}` : "Add gallery image"}>
+        <form key={editing?.id ?? "new"} onSubmit={handleSave} noValidate className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="gallery-title">Title *</Label>
-              <Input id="gallery-title" name="title" required minLength={2} maxLength={120} defaultValue={editing?.title ?? ""} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="gallery-alt">Alt text * (accessibility &amp; SEO)</Label>
-              <Input id="gallery-alt" name="altText" required minLength={2} maxLength={120} defaultValue={editing?.altText ?? ""} />
-            </div>
+            <Field id="gallery-title" label="Title" required error={fieldErrors.title}>
+              {(p) => <Input {...p} name="title" maxLength={120} className="bg-background" defaultValue={editing?.title ?? ""} />}
+            </Field>
+            <Field id="gallery-alt" label="Alt text (accessibility and SEO)" required error={fieldErrors.altText}>
+              {(p) => <Input {...p} name="altText" maxLength={120} className="bg-background" defaultValue={editing?.altText ?? ""} />}
+            </Field>
           </div>
 
-          <div className="space-y-2">
-            <Label className="font-medium">Gallery Photography *</Label>
+          <div className="space-y-1.5">
+            <span className="block text-sm font-medium">
+              Gallery photography<span aria-hidden="true" className="text-destructive"> *</span>
+            </span>
             <ImageUploader
+              id="gallery-image"
               name="imageUrl"
+              error={fieldErrors.imageUrl}
               defaultValue={editing?.imageUrl ?? ""}
               folder="gallery"
               presetImages={[
-                { name: "Café Interior", path: "/images/gallery/interior-01.jpg" },
+                { name: "Cafe Interior", path: "/images/gallery/interior-01.jpg" },
                 { name: "Royal Thali", path: "/images/gallery/thali-spread.jpg" },
                 { name: "Tandoor at Work", path: "/images/gallery/tandoor-action.jpg" },
                 { name: "Paneer Tikka", path: "/images/gallery/paneer-tikka.jpg" },
@@ -197,25 +216,22 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="gallery-category">Category</Label>
-              <select
-                id="gallery-category"
-                name="category"
-                defaultValue={editing?.category ?? "ATMOSPHERE"}
-                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {category.charAt(0) + category.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="gallery-sort">Sort order</Label>
-              <Input id="gallery-sort" name="sortOrder" type="number" min="0" max="9999" defaultValue={editing ? String(editing.sortOrder) : "0"} />
-            </div>
+            <Field id="gallery-category" label="Category" error={fieldErrors.category}>
+              {(p) => (
+                <select {...p} name="category" defaultValue={editing?.category ?? "ATMOSPHERE"} className={cn(controlClass, "h-11")}>
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category.charAt(0) + category.slice(1).toLowerCase()}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field id="gallery-sort" label="Sort order" error={fieldErrors.sortOrder}>
+              {(p) => (
+                <Input {...p} name="sortOrder" type="number" min="0" max="9999" className="bg-background" defaultValue={editing ? String(editing.sortOrder) : "0"} />
+              )}
+            </Field>
           </div>
 
           <label className="flex items-center gap-2 text-sm font-medium">
@@ -228,25 +244,14 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
             Published on the public gallery
           </label>
 
-          {error ? (
-            <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
+          <StatusMessage error={error} />
 
           <div className="sticky bottom-0 -mx-6 mt-6 flex justify-end gap-3 border-t border-border bg-card px-6 py-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setCreating(false);
-                setEditing(null);
-              }}
-            >
+            <Button type="button" variant="outline" onClick={closeModal}>
               Cancel
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : editing ? "Save changes" : "Add image"}
+              {pending ? "Saving..." : editing ? "Save changes" : "Add image"}
             </Button>
           </div>
         </form>
@@ -261,7 +266,7 @@ export function GalleryManager({ images }: { images: AdminGalleryRow[] }) {
             Cancel
           </Button>
           <Button variant="destructive" onClick={handleDelete} disabled={pending}>
-            {pending ? "Deleting…" : "Delete image"}
+            {pending ? "Deleting..." : "Delete image"}
           </Button>
         </div>
       </Modal>

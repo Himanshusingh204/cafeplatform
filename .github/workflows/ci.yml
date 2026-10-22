@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Production builds prerender public pages, which resolve the default tenant.
+env:
+  ALLOW_DEFAULT_TENANT: "true"
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -55,6 +59,27 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: Coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/coverage-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Tracking: 5 high findings (braces -> micromatch -> fast-glob ->
+      # eslint-config-next) are dev-only lint tooling; the fix is a breaking
+      # downgrade. Non-blocking until eslint-config-next ships a patched chain.
+      - name: Dependency audit (production deps)
+        run: npm audit --audit-level=high --omit=dev
+        continue-on-error: true
 
       - name: Production build
         run: npm run build
@@ -116,3 +141,51 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lighthouse:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Non-blocking: scores are advisory until a baseline is established.
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: indian_cafe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/indian_cafe?schema=public
+      AUTH_SECRET: ci-only-secret-never-used-in-production
+      APP_URL: http://localhost:3200
+      SEED_DEMO_DATA: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+      - run: npm run build
+      - name: Lighthouse CI
+        run: npx --yes @lhci/cli@0.14.x autorun --config=lighthouserc.json

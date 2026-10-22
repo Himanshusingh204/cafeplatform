@@ -22,6 +22,26 @@ export function MenuView({ categories }: MenuViewProps) {
   const [viewMode, setViewMode] = React.useState<ViewMode>("cards");
 
   const query = search.trim().toLowerCase();
+  const [activeSlug, setActiveSlug] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const sections = categories
+      .map((c) => document.getElementById(c.slug))
+      .filter((el): el is HTMLElement => el !== null);
+    if (sections.length === 0 || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length > 0) {
+          visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+          setActiveSlug(visible[0].target.id);
+        }
+      },
+      { rootMargin: "-120px 0px -60% 0px" }
+    );
+    sections.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [categories, query, filter]);
 
   // Filter dishes within each category based on search & dietary filter
   const filteredCategories = React.useMemo(() => {
@@ -66,7 +86,8 @@ export function MenuView({ categories }: MenuViewProps) {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search dishes, ingredients, spices…"
+              aria-label="Search dishes"
+              placeholder="Search dishes or spices"
               className="h-10 w-full rounded-full border border-border bg-background pl-10 pr-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             {search ? (
@@ -140,7 +161,7 @@ export function MenuView({ categories }: MenuViewProps) {
               className={cn(
                 "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 filter === "VEG"
-                  ? "bg-success text-white"
+                  ? "bg-success text-success-foreground"
                   : "border border-border bg-background text-muted-foreground hover:text-foreground"
               )}
             >
@@ -153,7 +174,7 @@ export function MenuView({ categories }: MenuViewProps) {
               className={cn(
                 "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 filter === "VEGAN"
-                  ? "bg-emerald-700 text-white"
+                  ? "bg-success text-success-foreground"
                   : "border border-border bg-background text-muted-foreground hover:text-foreground"
               )}
             >
@@ -166,7 +187,7 @@ export function MenuView({ categories }: MenuViewProps) {
               className={cn(
                 "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 filter === "SPICY"
-                  ? "bg-red-600 text-white"
+                  ? "bg-destructive text-destructive-foreground"
                   : "border border-border bg-background text-muted-foreground hover:text-foreground"
               )}
             >
@@ -177,7 +198,7 @@ export function MenuView({ categories }: MenuViewProps) {
 
           {/* Active results counter */}
           {(query || filter !== "ALL") && (
-            <span className="text-xs text-muted-foreground">
+            <span role="status" className="text-xs text-muted-foreground">
               Showing {totalMatches} {totalMatches === 1 ? "dish" : "dishes"}
             </span>
           )}
@@ -186,12 +207,21 @@ export function MenuView({ categories }: MenuViewProps) {
 
       {/* Category Jump Anchors */}
       {!query && (
-        <nav aria-label="Menu categories" className="flex flex-wrap gap-2">
+        <nav
+          aria-label="Menu categories"
+          className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto bg-background/90 px-4 py-3 backdrop-blur [scrollbar-width:none]"
+        >
           {categories.map((category) => (
             <a
               key={category.id}
               href={`#${category.slug}`}
-              className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+              aria-current={activeSlug === category.slug ? "true" : undefined}
+              className={cn(
+                "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition-colors hover:border-primary hover:text-primary",
+                activeSlug === category.slug
+                  ? "border-primary bg-primary text-primary-foreground hover:text-primary-foreground"
+                  : "border-border bg-card"
+              )}
             >
               {category.name}
             </a>
@@ -202,7 +232,7 @@ export function MenuView({ categories }: MenuViewProps) {
       {/* Zero State */}
       {filteredCategories.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-card">
-          <p className="heading-display text-2xl">No matching dishes found</p>
+          <p className="heading-display text-2xl">No dishes match</p>
           <p className="mt-2 text-sm text-muted-foreground">
             Try adjusting your search query or dietary filters.
           </p>
@@ -214,7 +244,7 @@ export function MenuView({ categories }: MenuViewProps) {
             }}
             className="mt-5 inline-flex rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
-            Reset filters
+            Clear filters
           </button>
         </div>
       ) : (

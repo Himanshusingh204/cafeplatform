@@ -7,6 +7,13 @@ import { DishCard } from "@/components/menu/dish-card";
 import { DishTags } from "@/components/menu/dish-tags";
 import { DishAddButton } from "@/components/menu/dish-add-button";
 import { getDishBySlugCached, getRelatedDishes } from "@/lib/services/menu";
+import {
+  breadcrumbSchema,
+  jsonLdGraph,
+  menuItemSchema,
+  serializeJsonLd,
+} from "@/lib/seo/jsonld";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { formatPrice } from "@/lib/utils/format";
 
 interface DishPageProps {
@@ -16,18 +23,14 @@ interface DishPageProps {
 export async function generateMetadata({ params }: DishPageProps): Promise<Metadata> {
   const { slug } = await params;
   const dish = await getDishBySlugCached(slug);
-  if (!dish) return { title: "Dish not found" };
+  if (!dish) return { title: "Dish not found", robots: { index: false } };
 
-  return {
+  return pageMetadata({
     title: dish.name,
     description: dish.shortDescription,
-    alternates: { canonical: `/menu/${dish.slug}` },
-    openGraph: {
-      title: dish.name,
-      description: dish.shortDescription,
-      images: dish.image ? [{ url: dish.image }] : undefined,
-    },
-  };
+    path: `/menu/${dish.slug}`,
+    images: dish.image ? [dish.image] : undefined,
+  });
 }
 
 export default async function DishPage({ params }: DishPageProps) {
@@ -37,29 +40,20 @@ export default async function DishPage({ params }: DishPageProps) {
 
   const relatedDishes = await getRelatedDishes(dish.categorySlug, dish.slug, 3);
 
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "MenuItem",
-    name: dish.name,
-    description: dish.description,
-    image: dish.image,
-    offers: {
-      "@type": "Offer",
-      price: dish.price,
-      priceCurrency: "INR",
-      availability: "https://schema.org/InStock",
-    },
-    suitableForDiet: [
-      dish.isVegetarian ? "https://schema.org/VegetarianDiet" : null,
-      dish.isVegan ? "https://schema.org/VeganDiet" : null,
-    ].filter(Boolean),
-  };
+  const jsonLd = jsonLdGraph(
+    menuItemSchema(dish),
+    breadcrumbSchema([
+      { name: "Home", path: "/" },
+      { name: "Menu", path: "/menu" },
+      { name: dish.name },
+    ]),
+  );
 
   return (
     <div className="container-site py-12 md:py-16">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
 
       <Link

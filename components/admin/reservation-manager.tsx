@@ -19,7 +19,14 @@ export interface ReservationRow {
   notes?: string | null;
 }
 
-export function ReservationManager({ reservations: initialRows }: { reservations: ReservationRow[] }) {
+export function ReservationManager({
+  reservations: initialRows,
+  canManage = true,
+}: {
+  reservations: ReservationRow[];
+  canManage?: boolean;
+}) {
+  const [error, setError] = React.useState<string | null>(null);
   const [rows, setRows] = React.useState(initialRows);
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
@@ -36,14 +43,31 @@ export function ReservationManager({ reservations: initialRows }: { reservations
 
   async function handleStatus(id: string, status: ReservationStatus) {
     setLoadingId(id);
+    setError(null);
+    const snapshot = rows;
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
 
-    await updateReservationStatusAction(id, status);
-    setLoadingId(null);
+    try {
+      const res = await updateReservationStatusAction(id, status);
+      if (!res.ok) {
+        setRows(snapshot);
+        setError(res.error || "The booking could not be updated.");
+      }
+    } catch {
+      setRows(snapshot);
+      setError("The booking could not be updated. Please try again.");
+    } finally {
+      setLoadingId(null);
+    }
   }
 
   return (
     <div className="space-y-4">
+      {error && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -63,13 +87,17 @@ export function ReservationManager({ reservations: initialRows }: { reservations
         </div>
 
         <div className="relative">
+          <label htmlFor="reservation-search" className="sr-only">
+            Search bookings by name, phone or code
+          </label>
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
           <input
+            id="reservation-search"
             type="text"
-            placeholder="Search bookings..."
+            placeholder="Name, phone or code"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-60 rounded-full border border-border bg-card pl-9 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            className="h-9 w-full min-w-48 rounded-full sm:w-60 border border-border bg-card pl-9 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
         </div>
       </div>
@@ -77,7 +105,11 @@ export function ReservationManager({ reservations: initialRows }: { reservations
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {filtered.length === 0 ? (
-          <p className="p-12 text-center text-sm text-muted-foreground">No reservations found.</p>
+          <p className="p-12 text-center text-sm text-muted-foreground">
+            {rows.length === 0
+              ? "No reservations yet. Bookings appear here when guests reserve a table from the public Reservations page."
+              : "No reservations match this search or filter."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -88,7 +120,7 @@ export function ReservationManager({ reservations: initialRows }: { reservations
                   <th className="px-5 py-3">Guests</th>
                   <th className="px-5 py-3">Lead Contact</th>
                   <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3 text-right">Actions</th>
+                  {canManage && <th className="px-5 py-3 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -130,6 +162,7 @@ export function ReservationManager({ reservations: initialRows }: { reservations
                         {r.status}
                       </span>
                     </td>
+                    {canManage && (
                     <td className="px-5 py-3.5 text-right space-x-1.5">
                       {r.status === "PENDING" && (
                         <button
@@ -159,6 +192,7 @@ export function ReservationManager({ reservations: initialRows }: { reservations
                         </button>
                       )}
                     </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

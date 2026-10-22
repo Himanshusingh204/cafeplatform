@@ -63,7 +63,20 @@ export function AdminShell({
 
   const closeMenu = () => setOpen(false);
 
+  const [signingOut, setSigningOut] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
   async function handleLogout() {
+    if (signingOut) return;
+    setSigningOut(true);
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     router.replace("/admin/login");
     router.refresh();
@@ -100,6 +113,12 @@ export function AdminShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-background lg:flex-row">
+      <a
+        href="#admin-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
       {/* Mobile Top Bar */}
       <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card/95 backdrop-blur px-4 lg:hidden">
         <Link href="/admin" className="flex items-center gap-2" aria-label="Admin home">
@@ -110,6 +129,7 @@ export function AdminShell({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls="admin-mobile-menu"
           aria-label={open ? "Close menu" : "Open menu"}
           className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
@@ -119,7 +139,7 @@ export function AdminShell({
 
       {/* Mobile Drawer */}
       {open ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur lg:hidden animate-in fade-in duration-200">
+        <div id="admin-mobile-menu" role="dialog" aria-modal="true" aria-label="Admin menu" className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur lg:hidden animate-in fade-in duration-200">
           <div className="flex h-16 items-center justify-between border-b border-border px-4">
             <Link href="/admin" onClick={closeMenu} className="flex items-center gap-2">
               <LogoMark />
@@ -128,9 +148,10 @@ export function AdminShell({
             <button
               type="button"
               onClick={closeMenu}
+              aria-label="Close menu"
               className="rounded-full p-2 text-muted-foreground hover:bg-muted"
             >
-              <X className="h-6 w-6" />
+              <X className="h-6 w-6" aria-hidden="true" />
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -144,10 +165,11 @@ export function AdminShell({
             <button
               type="button"
               onClick={handleLogout}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+              disabled={signingOut}
+              className="flex w-full items-center justify-center disabled:opacity-60 gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
             >
               <LogOut className="h-4 w-4" aria-hidden="true" />
-              Sign out
+              {signingOut ? "Signing out..." : "Sign out"}
             </button>
           </div>
         </div>
@@ -177,6 +199,8 @@ export function AdminShell({
             <button
               type="button"
               onClick={handleLogout}
+              disabled={signingOut}
+              aria-label="Sign out"
               title="Sign out"
               className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
             >
@@ -203,7 +227,7 @@ export function AdminShell({
               href="/admin/kds"
               className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
             >
-              <Flame className="h-3.5 w-3.5" />
+              <Flame className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Live Kitchen KDS</span>
             </Link>
           </div>
@@ -213,7 +237,8 @@ export function AdminShell({
               title="Customer Inquiries"
               className="relative flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
-              <Bell className="h-4 w-4" />
+              <Bell className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Customer inquiries</span>
               {lastNotification?.type === "new_message" && (
                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-pulse">
                   {lastNotification.count ?? 1}
@@ -230,14 +255,15 @@ export function AdminShell({
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+              disabled={signingOut}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 disabled:opacity-60 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
             >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign out
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+              {signingOut ? "Signing out..." : "Sign out"}
             </button>
           </div>
         </div>
-        <main className="flex-1 px-4 py-8 md:px-8 max-w-7xl mx-auto w-full">{children}</main>
+        <main id="admin-main" tabIndex={-1} className="flex-1 px-4 py-8 md:px-8 max-w-7xl mx-auto w-full">{children}</main>
       </div>
     </div>
   );

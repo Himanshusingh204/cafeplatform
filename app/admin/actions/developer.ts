@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/guards";
 import { permissions } from "@/config/roles";
 import { createApiKey, ApiScope } from "@/lib/auth/s2s";
-import { getOrCreateDefaultTenant } from "@/lib/db/tenant";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
+import { PlanLimitError } from "@/lib/plans";
 import { db } from "@/lib/db/prisma";
 
 export interface GenerateKeyResult {
@@ -19,7 +20,7 @@ export async function generateApiKeyAction(
   name: string,
   scopes: ApiScope[]
 ): Promise<GenerateKeyResult> {
-  await requirePermission(permissions.MANAGE_SETTINGS);
+  const admin = await requirePermission(permissions.MANAGE_SETTINGS);
 
   if (!name.trim()) {
     return { ok: false, error: "Key name is required" };
@@ -30,9 +31,8 @@ export async function generateApiKeyAction(
   }
 
   try {
-    const tenant = await getOrCreateDefaultTenant();
     const result = await createApiKey({
-      tenantId: tenant.id,
+      tenantId: await getAdminTenantId(admin),
       name: name.trim(),
       scopes,
     });
@@ -44,6 +44,7 @@ export async function generateApiKeyAction(
       keyPrefix: result.keyPrefix,
     };
   } catch (error) {
+    if (error instanceof PlanLimitError) return { ok: false, error: error.message };
     console.error("generateApiKeyAction error:", error);
     return { ok: false, error: "Failed to generate API Key" };
   }
@@ -70,7 +71,7 @@ export async function createWebhookSubscriptionAction(
   url: string,
   events: string[]
 ): Promise<{ ok: boolean; secret?: string; error?: string }> {
-  await requirePermission(permissions.MANAGE_SETTINGS);
+  const admin = await requirePermission(permissions.MANAGE_SETTINGS);
 
   try {
     new URL(url); // Validate URL format
@@ -79,12 +80,12 @@ export async function createWebhookSubscriptionAction(
   }
 
   try {
-    const tenant = await getOrCreateDefaultTenant();
+    const tenantId = await getAdminTenantId(admin);
     const secret = `whsec_${crypto.randomBytes(24).toString("hex")}`;
 
     await db.webhookSubscription.create({
       data: {
-        tenantId: tenant.id,
+        tenantId,
         url: url.trim(),
         secret,
         events: events.length > 0 ? events : ["*"],

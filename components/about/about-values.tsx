@@ -17,7 +17,7 @@ const DEFAULT_VALUES: ValueItem[] = [
   },
   {
     title: "Cooked low and slow",
-    body: "Our dal simmers overnight. Our curries reduce naturally — no thickeners, no shortcuts.",
+    body: "Our dal simmers overnight. Our curries reduce naturally - no thickeners, no shortcuts.",
   },
   {
     title: "Honest hospitality",
@@ -34,7 +34,7 @@ export function AboutValues({ values = DEFAULT_VALUES }: { values?: ValueItem[] 
             <div className="relative aspect-[4/3] overflow-hidden rounded-2xl shadow-card">
               <Image
                 src="/images/about/cafe-interior.jpg"
-                alt="The café interior — warm wood, soft light, open kitchen"
+                alt="The café interior - warm wood, soft light, open kitchen"
                 fill
                 priority
                 sizes="(max-width: 768px) 100vw, 50vw"
@@ -48,7 +48,7 @@ export function AboutValues({ values = DEFAULT_VALUES }: { values?: ValueItem[] 
               <p className="mt-5 leading-relaxed text-muted-foreground">
                 Spice &amp; Saffron began in 2019 as a weekend pop-up run from a
                 family kitchen in Hauz Khas. The recipes came from three
-                generations of home cooks — the kind of food that takes hours
+                generations of home cooks - the kind of food that takes hours
                 and tastes like it.
               </p>
               <p className="mt-4 leading-relaxed text-muted-foreground">
@@ -96,7 +96,7 @@ export function AboutValues({ values = DEFAULT_VALUES }: { values?: ValueItem[] 
                 The tandoor runs from opening to close. Breads are pulled to
                 order, tikka is charcoal-grilled in small batches, and desserts
                 are set fresh each morning. When something sells out, it is
-                gone — that is how freshness works.
+                gone - that is how freshness works.
               </p>
               <div className="mt-8">
                 <Link href="/menu" className={cn(buttonVariants(), "group")}>

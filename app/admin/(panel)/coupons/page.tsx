@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { db } from "@/lib/db/prisma";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { CouponManager, type AdminCoupon } from "@/components/admin/coupon-manager";
 
 export const metadata: Metadata = {
@@ -11,9 +12,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function AdminCouponsPage() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
 
+  const tenantId = await getAdminTenantId(admin);
   const rawCoupons = await db.coupon.findMany({
+    where: { tenantId },
     orderBy: { createdAt: "desc" },
   });
 
@@ -27,5 +30,11 @@ export default async function AdminCouponsPage() {
     createdAt: c.createdAt.toISOString(),
   }));
 
-  return <CouponManager initialCoupons={coupons} />;
+  return (
+    <CouponManager
+      initialCoupons={coupons}
+      canEdit={hasPermission(admin.role, permissions.EDIT_MENU)}
+      canDelete={hasPermission(admin.role, permissions.DELETE_MENU)}
+    />
+  );
 }

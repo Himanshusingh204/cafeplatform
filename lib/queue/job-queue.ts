@@ -28,6 +28,7 @@ export class JobQueue extends EventEmitter {
   private dlq: Job[] = [];
   private completedCount = 0;
   private failedCount = 0;
+  private processingCount = 0;
   private isProcessing = false;
   private timer: NodeJS.Timeout | null = null;
 
@@ -103,12 +104,14 @@ export class JobQueue extends EventEmitter {
     if (!handler) {
       job.status = "FAILED";
       job.lastError = `No registered handler for job type '${job.type}'`;
+      this.failedCount += 1;
       this.dlq.push(job);
       this.emit("dlq", job);
       return;
     }
 
     this.isProcessing = true;
+    this.processingCount += 1;
     job.status = "PROCESSING";
     job.attempts += 1;
 
@@ -135,6 +138,7 @@ export class JobQueue extends EventEmitter {
         this.emit("dlq", job);
       }
     } finally {
+      this.processingCount -= 1;
       this.isProcessing = false;
     }
   }
@@ -145,7 +149,7 @@ export class JobQueue extends EventEmitter {
   getMetrics(): QueueMetrics {
     return {
       pending: this.queue.filter((j) => j.status === "PENDING").length,
-      processing: this.isProcessing ? 1 : 0,
+      processing: this.processingCount,
       completed: this.completedCount,
       failed: this.failedCount,
       dlq: this.dlq.length,
@@ -197,6 +201,7 @@ export class JobQueue extends EventEmitter {
     this.dlq = [];
     this.completedCount = 0;
     this.failedCount = 0;
+    this.processingCount = 0;
   }
 }
 

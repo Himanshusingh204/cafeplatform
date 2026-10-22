@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   generateApiKeyAction,
   revokeApiKeyAction,
@@ -8,6 +9,9 @@ import {
   deleteWebhookSubscriptionAction,
 } from "@/app/admin/actions/developer";
 import { AVAILABLE_SCOPES, type ApiScope } from "@/config/s2s";
+import { useConfirm } from "@/components/admin/confirm-dialog";
+import { Field, StatusMessage, controlClass, type FieldErrors } from "@/components/admin/form-field";
+import { X } from "lucide-react";
 
 export interface ApiKeyItem {
   id: string;
@@ -30,9 +34,12 @@ export interface WebhookItem {
 interface DeveloperPortalProps {
   apiKeys: ApiKeyItem[];
   webhooks: WebhookItem[];
+  /** Issue, revoke, add and delete (MANAGE_SETTINGS). */
+  canManage?: boolean;
 }
 
-export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
+export function DeveloperPortal({ apiKeys, webhooks, canManage = true }: DeveloperPortalProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"keys" | "webhooks" | "docs">("keys");
   const [isPending, startTransition] = useTransition();
 
@@ -47,6 +54,9 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
   const [newGeneratedKey, setNewGeneratedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Webhook creation modal state
   const [showWebhookModal, setShowWebhookModal] = useState(false);
@@ -68,23 +78,43 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
     e.preventDefault();
     setKeyError(null);
 
+    if (!keyName.trim()) {
+      setFieldErrors({ keyName: "Enter a label so you can recognise this key later." });
+      return;
+    }
+    if (selectedScopes.length === 0) {
+      setFieldErrors({ scopes: "Select at least one permission scope." });
+      return;
+    }
+    setFieldErrors({});
+
     startTransition(async () => {
       const res = await generateApiKeyAction(keyName, selectedScopes);
       if (res.ok && res.apiKey) {
         setNewGeneratedKey(res.apiKey);
         setKeyName("");
+        setNotice("API key issued.");
       } else {
-        setKeyError(res.error || "Failed to generate key");
+        const message = res.error || "Failed to generate key";
+        setFieldErrors(/label|name/i.test(message) ? { keyName: message } : /scope/i.test(message) ? { scopes: message } : {});
+        setKeyError(message);
       }
     });
   };
 
-  const handleRevokeKey = (id: string) => {
-    if (!confirm("Are you sure you want to revoke this API Key? Any external POS or S2S system using it will immediately lose access.")) {
-      return;
-    }
+  const handleRevokeKey = async (id: string) => {
+    const ok = await confirm({ title: "Revoke API key", message: "Any external POS or server integration using this key will immediately lose access.", confirmLabel: "Revoke" });
+    if (!ok) return;
+    setPageError(null);
+    setNotice(null);
     startTransition(async () => {
-      await revokeApiKeyAction(id);
+      const res = await revokeApiKeyAction(id);
+      if (!res.ok) {
+        setPageError(res.error || "Could not revoke the key. Please try again.");
+        return;
+      }
+      setNotice("API key revoked.");
+      router.refresh();
     });
   };
 
@@ -92,37 +122,65 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
     e.preventDefault();
     setWebhookError(null);
 
+    if (!webhookUrl.trim()) {
+      setFieldErrors({ webhookUrl: "Enter the HTTPS endpoint that should receive events." });
+      return;
+    }
+    if (webhookEvents.length === 0) {
+      setFieldErrors({ webhookEvents: "Select at least one event." });
+      return;
+    }
+    setFieldErrors({});
+
     startTransition(async () => {
       const res = await createWebhookSubscriptionAction(webhookUrl, webhookEvents);
       if (res.ok && res.secret) {
         setCreatedSecret(res.secret);
         setWebhookUrl("");
+        setNotice("Webhook endpoint added.");
       } else {
-        setWebhookError(res.error || "Failed to create webhook");
+        const message = res.error || "Failed to create webhook";
+        setFieldErrors(/url|https|endpoint/i.test(message) ? { webhookUrl: message } : {});
+        setWebhookError(message);
       }
     });
   };
 
-  const handleDeleteWebhook = (id: string) => {
-    if (!confirm("Are you sure you want to delete this webhook endpoint?")) return;
+  const handleDeleteWebhook = async (id: string) => {
+    if (!(await confirm({ title: "Delete webhook", message: "Events will no longer be delivered to this endpoint." }))) return;
+    setPageError(null);
+    setNotice(null);
     startTransition(async () => {
-      await deleteWebhookSubscriptionAction(id);
+      const res = await deleteWebhookSubscriptionAction(id);
+      if (!res.ok) {
+        setPageError(res.error || "Could not delete the webhook. Please try again.");
+        return;
+      }
+      setNotice("Webhook deleted.");
+      router.refresh();
     });
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedKey(true);
+        setTimeout(() => setCopiedKey(false), 2000);
+      })
+      .catch(() => setPageError("Could not copy automatically. Select the text and copy it manually."));
   };
+
+  const { confirm, dialog } = useConfirm();
 
   return (
     <div className="space-y-6">
+      {dialog}
       {/* Header */}
       <div className="p-6 rounded-2xl bg-card border border-border">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
                 S2S & M2M Gateway
               </span>
@@ -133,12 +191,15 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          {canManage ? (
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => {
                 setShowKeyModal(true);
                 setNewGeneratedKey(null);
+                setKeyError(null);
+                setFieldErrors({});
               }}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground transition-all shadow-sm flex items-center gap-1.5"
             >
@@ -149,18 +210,22 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
               onClick={() => {
                 setShowWebhookModal(true);
                 setCreatedSecret(null);
+                setWebhookError(null);
+                setFieldErrors({});
               }}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-muted hover:bg-muted/80 text-foreground border border-border transition-all flex items-center gap-1.5"
             >
               + Add Webhook
             </button>
           </div>
+          ) : null}
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-2 mt-6 pt-4 border-t border-border">
+        <div className="flex flex-wrap items-center gap-2 mt-6 pt-4 border-t border-border" role="group" aria-label="Developer sections">
           <button
             type="button"
+            aria-pressed={activeTab === "keys"}
             onClick={() => setActiveTab("keys")}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
               activeTab === "keys"
@@ -172,6 +237,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
           </button>
           <button
             type="button"
+            aria-pressed={activeTab === "webhooks"}
             onClick={() => setActiveTab("webhooks")}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
               activeTab === "webhooks"
@@ -183,6 +249,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
           </button>
           <button
             type="button"
+            aria-pressed={activeTab === "docs"}
             onClick={() => setActiveTab("docs")}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
               activeTab === "docs"
@@ -195,6 +262,8 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
         </div>
       </div>
 
+      <StatusMessage ok={notice} error={pageError} />
+
       {/* Tab Content: API Keys */}
       {activeTab === "keys" && (
         <div className="rounded-2xl bg-card border border-border overflow-hidden">
@@ -206,22 +275,22 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[640px] text-left text-xs">
               <thead className="border-b border-border bg-muted/40 text-muted-foreground">
                 <tr>
-                  <th className="py-3 px-4 font-semibold">Name</th>
-                  <th className="py-3 px-4 font-semibold">Key Identifier</th>
-                  <th className="py-3 px-4 font-semibold">Granted Scopes</th>
-                  <th className="py-3 px-4 font-semibold">Last Used</th>
-                  <th className="py-3 px-4 font-semibold">Created</th>
-                  <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Name</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Key Identifier</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Granted Scopes</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Last Used</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Created</th>
+                  <th scope="col" className="py-3 px-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {apiKeys.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-muted-foreground">
-                      No API keys generated yet. Click &quot;+ Issue API Key&quot; to connect external POS or delivery services.
+                      {canManage ? "No API keys yet. Select + Issue API Key above to create your first key, then give it to your POS or delivery partner." : "No API keys yet. Ask an admin to issue the first key."}
                     </td>
                   </tr>
                 ) : (
@@ -247,12 +316,14 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                         {new Date(key.createdAt).toLocaleDateString()}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        {key.isActive ? (
+                        {!canManage ? (
+                          <span className="text-muted-foreground text-xs">{key.isActive ? "Active" : "Revoked"}</span>
+                        ) : key.isActive ? (
                           <button
                             type="button"
                             disabled={isPending}
                             onClick={() => handleRevokeKey(key.id)}
-                            className="text-rose-400 hover:text-rose-300 font-semibold text-xs transition-colors"
+                            className="text-destructive hover:underline font-semibold text-xs transition-colors disabled:opacity-60"
                           >
                             Revoke
                           </button>
@@ -280,20 +351,20 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="border-b border-border bg-muted/40 text-muted-foreground">
                 <tr>
-                  <th className="py-3 px-4 font-semibold">Destination URL</th>
-                  <th className="py-3 px-4 font-semibold">Events</th>
-                  <th className="py-3 px-4 font-semibold">Created</th>
-                  <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Destination URL</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Events</th>
+                  <th scope="col" className="py-3 px-4 font-semibold">Created</th>
+                  <th scope="col" className="py-3 px-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {webhooks.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-8 text-center text-muted-foreground">
-                      No webhook endpoints configured. Click &quot;+ Add Webhook&quot; to subscribe to real-time events.
+                      {canManage ? "No webhook endpoints yet. Select + Add Webhook above, enter an HTTPS URL and choose the events to receive." : "No webhook endpoints yet. Ask an admin to add the first one."}
                     </td>
                   </tr>
                 ) : (
@@ -303,7 +374,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
                           {wh.events.map((ev) => (
-                            <span key={ev} className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono">
+                            <span key={ev} className="px-1.5 py-0.5 rounded bg-success/15 text-success text-[10px] font-mono">
                               {ev}
                             </span>
                           ))}
@@ -313,14 +384,16 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                         {new Date(wh.createdAt).toLocaleDateString()}
                       </td>
                       <td className="py-3 px-4 text-right">
+                        {canManage ? (
                         <button
                           type="button"
                           disabled={isPending}
                           onClick={() => handleDeleteWebhook(wh.id)}
-                          className="text-rose-400 hover:text-rose-300 font-semibold text-xs transition-colors"
+                          className="text-destructive hover:underline font-semibold text-xs transition-colors disabled:opacity-60"
                         >
                           Delete
                         </button>
+                        ) : null}
                       </td>
                     </tr>
                   ))
@@ -333,10 +406,10 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
       {/* Tab Content: S2S Documentation & cURL */}
       {activeTab === "docs" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
             <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono text-xs">GET</span>
+              <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-xs">GET</span>
               Sync Menu Catalog
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -350,7 +423,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
           <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
             <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-xs">POST</span>
+              <span className="px-2 py-0.5 rounded bg-success/15 text-success font-mono text-xs">POST</span>
               Ingest Order from POS / Partner
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -372,7 +445,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
           <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
             <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono text-xs">STREAM</span>
+              <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-mono text-xs">STREAM</span>
               Real-Time Kitchen Display Stream
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -386,7 +459,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
           <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
             <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono text-xs">WEBHOOK</span>
+              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono text-xs">WEBHOOK</span>
               Inbound Partner Webhook Receiver
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -402,26 +475,27 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
       {/* Modal: Generate API Key */}
       {showKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-md p-6 rounded-2xl bg-card border border-border shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onKeyDown={(e) => e.key === "Escape" && setShowKeyModal(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="key-modal-title" className="w-full max-w-md max-h-[90vh] overflow-y-auto p-6 rounded-2xl bg-card border border-border shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-lg text-foreground">Issue New S2S API Key</h3>
+              <h3 id="key-modal-title" className="font-bold text-lg text-foreground">Issue New S2S API Key</h3>
               <button
                 type="button"
                 onClick={() => setShowKeyModal(false)}
-                className="text-muted-foreground hover:text-foreground text-sm font-bold"
+                aria-label="Close dialog"
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                ✕
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
             {newGeneratedKey ? (
               <div className="space-y-4">
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-                  ⚠️ <strong>Save this key immediately!</strong> It will never be displayed again. If lost, you must revoke it and issue a new one.
+                <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs">
+                  <strong>Save this key now.</strong> It will never be displayed again. If lost, you must revoke it and issue a new one.
                 </div>
 
-                <div className="p-3 rounded-xl bg-background border border-border font-mono text-xs text-primary break-all">
+                <div className="p-3 rounded-xl bg-background border border-border font-mono text-xs text-primary break-all select-all">
                   {newGeneratedKey}
                 </div>
 
@@ -430,32 +504,30 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                   onClick={() => copyToClipboard(newGeneratedKey)}
                   className="w-full py-2.5 rounded-xl font-bold text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
                 >
-                  {copiedKey ? "✓ Copied to Clipboard!" : "📋 Copy Secret API Key"}
+                  <span role="status">{copiedKey ? "Copied to clipboard" : "Copy secret API key"}</span>
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleGenerateKey} className="space-y-4">
-                {keyError && (
-                  <p className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
-                    {keyError}
-                  </p>
-                )}
+              <form onSubmit={handleGenerateKey} noValidate className="space-y-4">
+                <StatusMessage error={keyError} />
 
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1">Key Label</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Toast POS Production Connector"
-                    value={keyName}
-                    onChange={(e) => setKeyName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-xs focus:ring-2 focus:ring-primary outline-none"
-                  />
-                </div>
+                <Field id="key-label" label="Key label" required error={fieldErrors.keyName}>
+                  {(p) => (
+                    <input
+                      {...p}
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. Toast POS Production Connector"
+                      value={keyName}
+                      onChange={(e) => setKeyName(e.target.value)}
+                      className={controlClass}
+                    />
+                  )}
+                </Field>
 
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1.5">Permission Scopes</label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                <fieldset aria-describedby={fieldErrors.scopes ? "key-scopes-error" : undefined}>
+                  <legend className="block text-sm font-medium text-foreground mb-1.5">Permission scopes</legend>
+                  <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2 text-xs">
                     {AVAILABLE_SCOPES.map((scope) => (
                       <label
                         key={scope}
@@ -469,13 +541,18 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                           type="checkbox"
                           checked={selectedScopes.includes(scope)}
                           onChange={() => toggleScope(scope)}
-                          className="rounded text-primary"
+                          className="rounded accent-[var(--primary)]"
                         />
                         <span className="font-mono text-[11px]">{scope}</span>
                       </label>
                     ))}
                   </div>
-                </div>
+                  {fieldErrors.scopes ? (
+                    <p id="key-scopes-error" role="alert" className="mt-1.5 text-xs font-medium text-destructive">
+                      {fieldErrors.scopes}
+                    </p>
+                  ) : null}
+                </fieldset>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
@@ -488,7 +565,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60"
                   >
                     {isPending ? "Generating..." : "Generate Key"}
                   </button>
@@ -501,28 +578,29 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
 
       {/* Modal: Add Webhook */}
       {showWebhookModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-md p-6 rounded-2xl bg-card border border-border shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onKeyDown={(e) => e.key === "Escape" && setShowWebhookModal(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="webhook-modal-title" className="w-full max-w-md max-h-[90vh] overflow-y-auto p-6 rounded-2xl bg-card border border-border shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-lg text-foreground">Configure Webhook Endpoint</h3>
+              <h3 id="webhook-modal-title" className="font-bold text-lg text-foreground">Configure Webhook Endpoint</h3>
               <button
                 type="button"
                 onClick={() => setShowWebhookModal(false)}
-                className="text-muted-foreground hover:text-foreground text-sm font-bold"
+                aria-label="Close dialog"
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                ✕
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
             {createdSecret ? (
               <div className="space-y-4">
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs">
-                  ✓ Webhook created! Use this signing secret to verify signatures in your handler.
+                <div role="status" className="p-3 rounded-xl bg-success/10 border border-success/30 text-success text-xs">
+                  Webhook created. Use this signing secret to verify signatures in your handler.
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Webhook Secret (HMAC):</label>
-                  <div className="p-3 rounded-xl bg-background border border-border font-mono text-xs text-primary break-all">
+                  <p className="block text-xs font-semibold text-muted-foreground mb-1">Webhook secret (HMAC)</p>
+                  <div className="p-3 rounded-xl bg-background border border-border font-mono text-xs text-primary break-all select-all">
                     {createdSecret}
                   </div>
                 </div>
@@ -532,31 +610,29 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                   onClick={() => copyToClipboard(createdSecret)}
                   className="w-full py-2.5 rounded-xl font-bold text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
                 >
-                  {copiedKey ? "✓ Copied Secret!" : "📋 Copy Webhook Secret"}
+                  <span role="status">{copiedKey ? "Copied secret" : "Copy webhook secret"}</span>
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleCreateWebhook} className="space-y-4">
-                {webhookError && (
-                  <p className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
-                    {webhookError}
-                  </p>
-                )}
+              <form onSubmit={handleCreateWebhook} noValidate className="space-y-4">
+                <StatusMessage error={webhookError} />
 
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1">Endpoint URL (HTTPS)</label>
-                  <input
-                    type="url"
-                    required
-                    placeholder="https://your-server.com/api/webhooks"
-                    value={webhookUrl}
-                    onChange={(e) => setWebhookUrl(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-xs focus:ring-2 focus:ring-primary outline-none"
-                  />
-                </div>
+                <Field id="webhook-url" label="Endpoint URL (HTTPS)" required error={fieldErrors.webhookUrl}>
+                  {(p) => (
+                    <input
+                      {...p}
+                      type="url"
+                      autoFocus
+                      placeholder="https://your-server.com/api/webhooks"
+                      value={webhookUrl}
+                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      className={controlClass}
+                    />
+                  )}
+                </Field>
 
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1.5">Subscribed Events</label>
+                <fieldset aria-describedby={fieldErrors.webhookEvents ? "webhook-events-error" : undefined}>
+                  <legend className="block text-sm font-medium text-foreground mb-1.5">Subscribed events</legend>
                   <div className="space-y-2 text-xs">
                     {["order.created", "order.status_changed", "reservation.created"].map((ev) => (
                       <label
@@ -571,13 +647,18 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                               prev.includes(ev) ? prev.filter((e) => e !== ev) : [...prev, ev]
                             )
                           }
-                          className="rounded text-primary"
+                          className="rounded accent-[var(--primary)]"
                         />
                         <span className="font-mono text-xs">{ev}</span>
                       </label>
                     ))}
                   </div>
-                </div>
+                  {fieldErrors.webhookEvents ? (
+                    <p id="webhook-events-error" role="alert" className="mt-1.5 text-xs font-medium text-destructive">
+                      {fieldErrors.webhookEvents}
+                    </p>
+                  ) : null}
+                </fieldset>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
@@ -590,7 +671,7 @@ export function DeveloperPortal({ apiKeys, webhooks }: DeveloperPortalProps) {
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60"
                   >
                     {isPending ? "Creating..." : "Add Endpoint"}
                   </button>

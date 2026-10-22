@@ -235,7 +235,13 @@ Still open in this phase:
 
 - [ ] `server/api.ts` trimmed to a thin adapter (it still owns menu caching).
 - [ ] Minimal two-adapter parity smoke (the full contract test is Phase 5).
-- [ ] Replace the hardcoded 5 % GST and float money in `lib/services/orders.ts` (P1-7).
+- [x] Replace the hardcoded 5 % GST and float money in `lib/services/orders.ts` (P1-7).
+      `lib/money/` holds all arithmetic in integer paise with a single half-up
+      rounding primitive and converts to the `Decimal(10,2)` column as an exact
+      string; the rate is configuration (`config/pricing.ts`, `TAX_RATE_PERCENT`).
+      The checkout page had its own `Math.round(subtotal * 0.05)` and now shares
+      the same rule (`lib/money/cart.ts`) with the server. Per-tenant rates need
+      the Phase 2 `Tenant` column (plan D1).
 
 ### 1.1 Pre-work — protect in-flight work (R10)
 
@@ -282,7 +288,7 @@ Still open in this phase:
 
 | ID | Finding | Evidence pointer | Status |
 | :--- | :--- | :--- | :--- |
-| P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Pricing, order numbers, idempotency and rate limiting fixed.** The hardcoded 5% tax is tracked as P1-7 (Phase 2). |
+| P0-1 | Client-controlled pricing; hardcoded tax; colliding `orderNumber` | `app/api/v1/orders/route.ts:22,93–96,98–99,47` | **Fully fixed.** Server-authoritative pricing, order numbers, idempotency, rate limiting, and (2026-10-15) the hardcoded 5 % tax and float money — now `lib/money/` in integer paise with a configured rate. A per-tenant rate is Phase 2. |
 | P0-4 | API undeployable on Vercel; base64 `data:` uploads persisted to Postgres | `vercel.json`, `app/api/upload/route.ts:63–91` | **Fixed** — S3-compatible `lib/storage/` for uploads, production-only migrations and API-surface probes in `scripts/vercel-build.mjs` / `scripts/verify-deployment.mjs`. |
 | P0-5 | Confirmation emails only logged, never sent | `lib/queue/handlers.ts:65–74`, `server/api.ts:292–299` | **Fixed** — the handler sends and fails loudly; a receipt is sent on order creation. |
 | R10 | Uncommitted Phase 2.2 work | `git status` | **Fixed** — committed in `46998ea`. |
@@ -334,7 +340,7 @@ with bounded connection pooling that survives serverless.
 - [ ] Change `tenantId` to `NOT NULL` using **expand → backfill → contract** (no table lock on a live table).
 - [ ] Make `resolveTenant` in `lib/db/tenant.ts` **fail closed**: unknown/inactive slug ⇒ `404`, never the default tenant.
 - [ ] Remove `getOrCreateDefaultTenant()` from hot read paths and from every SSE connect (`app/api/v1/realtime/kds/route.ts:39`).
-- [ ] Cache the tenant lookup (TTL) so resolution is not a per-request write.
+- [x] Cache the tenant lookup (TTL) so resolution is not a per-request write. (2026-10-23: 60 s in-process cache, `updateTenant` invalidates; read path never writes outside the default-tenant dev path.)
 - [ ] Replace every `OR: [{ tenantId }, { tenantId: null }]` with a strict equality filter (`app/api/v1/orders/route.ts:47`, `server/api.ts:164,192`).
 - [ ] Add tenant-crossover security tests (request tenant B data with tenant A credentials ⇒ `404`/`403`, never data).
 
@@ -348,20 +354,21 @@ with bounded connection pooling that survives serverless.
 
 ### 2.3 Multi-tenancy completeness (P2-4, P2-5)
 
-- [ ] Add `tenantId` to the four orphan contexts: `GalleryImage`, `ContactMessage`, `Review`, `Setting` (and `Coupon`).
-- [ ] Replace globally-unique keys with tenant-scoped uniqueness: `(tenantId, slug)` on `Category`/`Dish`, `(tenantId, code)` on `Coupon`, `(tenantId, key)` on `Setting`, `(tenantId, email)` on `Admin` — so two tenants may share a slug/code/key.
+- [x] Add `tenantId` to the four orphan contexts: `GalleryImage`, `ContactMessage`, `Review`, `Setting` (and `Coupon`). (2026-10-23, also `Category`/`Dish` NOT NULL.)
+- [x] Replace globally-unique keys with tenant-scoped uniqueness: `(tenantId, slug)` on `Category`/`Dish`, `(tenantId, code)` on `Coupon`, `(tenantId, key)` on `Setting` (done 2026-10-23). `Admin.email` stays global: login is by email alone, so per-tenant email needs a tenant-aware login first.
 - [ ] Make `orderNumber` unique per `(tenantId, orderNumber)` instead of globally (P1-8).
 
-### 2.4 Money correctness (P1-7)
+### 2.4 Money correctness (P1-7) — arithmetic **done** in Phase 1; tenant rate remains
 
-- [ ] Replace `Number(d.price)` + float `reduce` with `Decimal`/integer-minor-unit arithmetic on both adapters (`server/api.ts:118`, `app/api/v1/orders/route.ts:93,140`).
-- [ ] Round half-up **once**, at the total; store `Decimal(10,2)` + explicit currency.
-- [ ] Add money-rounding tests (discount + tax + tip permutations).
+- [x] Replaced float arithmetic with integer minor units on the pricing path — `lib/money/` (`toMinorUnits`, `applyRatePercent`, `roundHalfUp`, `toDecimalString`) with a single shared cart rule in `lib/money/cart.ts`. `server/api.ts` still reads `Number(d.price)` for display; the *pricing* path is exact on both runtimes.
+- [x] Half-up rounding once per derived amount; `Decimal(10,2)` at the boundary via an exact fixed-point string; currency is explicit (`config/pricing.ts` → `pricing.currency`).
+- [x] Money-rounding tests: `tests/unit/money.test.ts` (25 cases: boundaries, negatives, malformed input, discount + tax + tip permutations) plus DB-backed assertions in `tests/unit/order-pricing.test.ts`.
+- [ ] **Phase 2:** add `Tenant.taxRatePercent` (and currency) so the rate is per-tenant rather than global; the call site already reads it (`resolveTaxRatePercent`).
 
 ### 2.5 Connections & transactions (P1-2)
 
-- [ ] Add explicit pool bounds in `lib/db/prisma.ts`: `max` per runtime, `idleTimeoutMillis`, `connectionTimeoutMillis`, `statement_timeout`, `application_name`.
-- [ ] Use pooler-compatible settings (PgBouncer transaction-mode safe) and `max ≈ 1–5` for serverless, `10–20` for the worker.
+- [x] Add explicit pool bounds in `lib/db/prisma.ts`: `max` per runtime, `idleTimeoutMillis`, `connectionTimeoutMillis`, `statement_timeout`, `application_name`.
+- [x] Use pooler-compatible settings (PgBouncer transaction-mode safe) and `max ≈ 1–5` for serverless, `10–20` for the worker.
 - [ ] Add a `withTransaction` helper with bounded retries for serialization failures.
 
 ### Findings closed
@@ -410,13 +417,15 @@ becomes a **durable, DB-backed outbox** drained by a worker + Vercel Cron.
 
 ### 3.1 Redis as a hard production dependency (P0-2)
 
-- [ ] Add a boot-time assertion: refuse to start in production when Redis is unconfigured.
+- [x] Add a boot-time assertion: refuse to start in production when Redis is unconfigured.
 - [ ] Make `lib/cache/cache-manager.ts`, `lib/rate-limit/limiter.ts` and `lib/resilience/idempotency.ts` require Redis in production; keep in-memory **strictly** for dev/test.
 - [ ] Remove the silent, unconditional in-memory fallback (the capability already exists; stop degrading quietly).
 - [ ] Replace `lib/realtime/bus.ts` `EventEmitter` with **Redis pub/sub** for KDS fan-out.
 - [ ] Make the order write path publish events only to the shared bus.
 
 ### 3.2 Durable outbox queue (P0-2)
+
+> **Status (partial):** `OutboxEvent` table + `lib/outbox` (enqueue in-transaction, `processOutbox` with `FOR UPDATE SKIP LOCKED`, backoff, DEAD) + `/api/cron/outbox` shipped; order receipts migrated. Open: Redis hard-dependency decision, moving webhook/KDS jobs onto the outbox, outbox depth metrics.
 
 - [ ] Add an outbox table (event type, payload, status, attempts, `availableAt`, `tenantId`).
 - [ ] Insert outbox events **inside** the order transaction (no side effect before commit).
@@ -428,13 +437,13 @@ becomes a **durable, DB-backed outbox** drained by a worker + Vercel Cron.
 ### 3.3 Fix cache invalidation & idempotency (P1-3, P1-4)
 
 - [ ] Replace the blocking `KEYS prefix*` in `lib/cache/cache-manager.ts:138` with `SCAN` cursors or versioned key prefixes.
-- [ ] Bind the idempotency key to `(tenantId, endpoint, payload hash)`; a reused key with a different body returns `409` instead of replaying. _(Implemented for `POST /api/v1/orders` in Phase 1 — `lib/api/request-guards.ts`. The Express `idempotencyMiddleware` still keys on the raw header alone; extending it to the same `(tenant, endpoint, payload)` scope is part of the Phase 1 two-adapter parity work.)_
+- [x] Bind the idempotency key to `(tenantId, endpoint, payload hash)`; a reused key with a different body returns `409` instead of replaying. _(Implemented for `POST /api/v1/orders` in Phase 1 — `lib/api/request-guards.ts`. The Express `idempotencyMiddleware` still keys on the raw header alone; extending it to the same `(tenant, endpoint, payload)` scope is part of the Phase 1 two-adapter parity work.)_
 - [ ] Persist the idempotency key so replay safety survives a cache flush.
 
 ### 3.4 Real metrics & correct fan-out (P2-7, P2-8)
 
-- [ ] Make queue metrics meaningful under concurrency (depth, in-flight, lag, completed, failed) sourced from the outbox, not a per-process counter that can never exceed `1`.
-- [ ] Fix the KDS tenant key mismatch: the broadcast publishes `tenant:spice-saffron` (slug) while subscribers register with a UUID — publish and subscribe on the **same** tenant identifier (`server/api.ts:287` vs `realtime/kds/route.ts:40`).
+- [x] (done, in-process counters; outbox depth/lag metrics still open) Make queue metrics meaningful under concurrency (depth, in-flight, lag, completed, failed) sourced from the outbox, not a per-process counter that can never exceed `1`.
+- [x] (done in `server/app.ts`) Fix the KDS tenant key mismatch: the broadcast publishes `tenant:spice-saffron` (slug) while subscribers register with a UUID — publish and subscribe on the **same** tenant identifier (`server/api.ts:287` vs `realtime/kds/route.ts:40`).
 
 ### Findings closed
 
@@ -477,15 +486,15 @@ trustworthy for real traffic and real tenants.
 
 ### 4.1 CORS & headers (P1-1)
 
-- [ ] Replace the permissive Express CORS callback (`server/api.ts:29–42`, which returns `true` for every origin with `credentials: true`) with a **strict allowlist** derived from `APP_URL`.
-- [ ] Add `Idempotency-Key` to `allowedHeaders` (the middleware already expects it).
+- [x] Replace the permissive Express CORS callback (`server/api.ts:29–42`, which returns `true` for every origin with `credentials: true`) with a **strict allowlist** derived from `APP_URL`.
+- [x] Add `Idempotency-Key` to `allowedHeaders` (the middleware already expects it).
 - [ ] Tighten CSP: remove `'unsafe-inline'` for scripts where feasible; document every exception.
 - [ ] Add `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `X-DNS-Prefetch-Control`.
 
 ### 4.2 Auth hygiene (P1-5, P1-6)
 
-- [ ] Throttle/debounce the `lastUsedAt` write on the S2S hot path (e.g. update only when older than 60 s).
-- [ ] Correct the misleading constant-time claim in `lib/auth/s2s.ts` — the value was already matched by `findUnique({ keyHash })`, so `timingSafeEqual` here defends nothing. Fix the **documentation** (and keep the lookup, which is constant-time by construction).
+- [x] Throttle/debounce the `lastUsedAt` write on the S2S hot path (e.g. update only when older than 60 s).
+- [x] Correct the misleading constant-time claim in `lib/auth/s2s.ts` — the value was already matched by `findUnique({ keyHash })`, so `timingSafeEqual` here defends nothing. Fix the **documentation** (and keep the lookup, which is constant-time by construction).
 - [ ] Enforce the S2S IP allowlist.
 
 ### 4.3 Isolation, limits & supply chain
@@ -498,7 +507,7 @@ trustworthy for real traffic and real tenants.
 
 ### Findings closed
 
-P1-1 · P1-5 · P1-6 (plus enforcement hardening for P1-3/P1-4 from Phase 3).
+P1-1 · P1-5 · P1-6 · P1-10 (plus enforcement hardening for P1-3/P1-4 from Phase 3).
 
 ### Acceptance criteria
 
@@ -764,7 +773,7 @@ product**: onboarding, plan quotas, billing hooks, tenant admin, and SLA.
 ### Tasks
 
 - [ ] Multi-tenant onboarding flow (create tenant, seed defaults, first admin).
-- [ ] Per-plan quota enforcement driven by `SubscriptionPlan`.
+- [x] Per-plan quota enforcement (slice, 2026-10-23): `Tenant.plan` (`FREE`/`STARTER`/`PRO`), limits in `lib/plans/index.ts`, `assertWithinPlan` called from dish, gallery, API key and order creation (`PlanLimitError`, HTTP 402). The admin settings page shows usage. `adminUsers` is defined but there is no admin-creation path yet to enforce it. Billing-driven plan changes remain open.
 - [ ] Billing hooks (subscription + invoicing integration points).
 - [ ] Tenant admin console (manage tenant, plans, limits, branding).
 - [ ] SLA + support documentation.

@@ -2,13 +2,17 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createApiKey, verifyS2SRequest } from "@/lib/auth/s2s";
 import { signWebhookPayload } from "@/lib/webhooks/dispatcher";
 import { db } from "@/lib/db/prisma";
-import { getOrCreateDefaultTenant } from "@/lib/db/tenant";
+import { uniqueSuffix } from "../helpers/db";
 
 describe("S2S M2M Authentication & Webhooks", () => {
   let tenantId: string;
 
   beforeEach(async () => {
-    const tenant = await getOrCreateDefaultTenant();
+    // A dedicated PRO tenant: the shared default tenant accumulates keys across runs
+    // and would hit the STARTER apiKeys quota.
+    const tenant = await db.tenant.create({
+      data: { slug: `s2s-${uniqueSuffix()}`, name: "S2S Test", plan: "PRO" },
+    });
     tenantId = tenant.id;
   });
 

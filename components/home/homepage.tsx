@@ -25,7 +25,7 @@ export default async function HomePage() {
     .slice(0, 4);
 
   return (
-    <main className="flex-1">
+    <div className="flex-1">
       <Hero />
       <FeaturedDishes featured={featured} />
       <AboutPreview />
@@ -42,8 +42,8 @@ export default async function HomePage() {
             <h2 className="heading-display text-balance max-w-md text-3xl md:text-4xl">
               The tandoor is already hot.
             </h2>
-            <Link href="/menu" className={cn(buttonVariants({ size: "lg" }), "group shrink-0")}>
-              See today&apos;s menu
+            <Link href="/contact" className={cn(buttonVariants({ size: "lg" }), "group shrink-0")}>
+              Find us
               <ArrowRight
                 className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5"
                 aria-hidden="true"
@@ -52,6 +52,6 @@ export default async function HomePage() {
           </div>
         </nav>
       </Reveal>
-    </main>
+    </div>
   );
 }

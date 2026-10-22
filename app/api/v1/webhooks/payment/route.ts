@@ -1,9 +1,11 @@
+import { apiError } from "@/lib/api/errors";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/prisma";
 import { verifyRazorpayWebhookSignature } from "@/lib/payments/engine";
 import { broadcastEvent } from "@/lib/realtime/bus";
 import { sendOrderReceipt } from "@/lib/email/notifier";
 import { logger } from "@/lib/logger";
+import { captureRejection } from "@/lib/payments/capture-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +20,13 @@ export async function POST(req: NextRequest) {
   // 1. Verify cryptographic signature if in production
   if (process.env.NODE_ENV === "production" || process.env.RAZORPAY_WEBHOOK_SECRET) {
     if (!signature) {
-      return NextResponse.json({ error: "Missing signature header" }, { status: 400 });
+      return apiError(400, "Missing signature header");
     }
 
     const isValid = verifyRazorpayWebhookSignature(rawBody, signature);
     if (!isValid) {
       logger.error({ event: "webhook.payment.invalid_signature" });
-      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+      return apiError(400, "Invalid signature");
     }
   }
 
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     eventPayload = JSON.parse(rawBody);
   } catch {
-    return NextResponse.json({ error: "Malformed JSON payload" }, { status: 400 });
+    return apiError(400, "Malformed JSON payload");
   }
 
   const eventType = String(eventPayload.event || "");
@@ -84,9 +86,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, note: "Already processed" }, { status: 200 });
       }
 
-      // 3. Update Order atomically
-      const updatedOrder = await db.order.update({
-        where: { id: order.id },
+      const rejection = captureRejection(order, paymentObj.amount);
+      if (rejection) {
+        logger.error({
+          event: "webhook.payment.rejected",
+          orderId: order.id,
+          paymentId,
+          amount: paymentObj.amount,
+          reason: rejection,
+        });
+        return NextResponse.json({ received: true, note: rejection }, { status: 200 });
+      }
+
+      // 3. Claim the order atomically: a concurrent duplicate delivery matches 0 rows.
+      const claimed = await db.order.updateMany({
+        where: { id: order.id, paymentStatus: { not: "PAID" } },
         data: {
           paymentStatus: "PAID",
           orderStatus: "CONFIRMED",
@@ -94,6 +108,12 @@ export async function POST(req: NextRequest) {
           gatewaySignature: signature || order.gatewaySignature,
           paymentMethod: "RAZORPAY",
         },
+      });
+      if (claimed.count === 0) {
+        return NextResponse.json({ received: true, note: "Already processed" }, { status: 200 });
+      }
+      const updatedOrder = await db.order.findUniqueOrThrow({
+        where: { id: order.id },
         include: { items: true },
       });
 
@@ -127,7 +147,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, success: true, orderId: updatedOrder.id });
     } catch (dbError) {
       logger.error({ event: "webhook.payment.db_error", error: String(dbError) });
-      return NextResponse.json({ error: "Database processing failed" }, { status: 500 });
+      return apiError(500, "Database processing failed");
     }
   }
 

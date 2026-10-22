@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth/session";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
-import { getOrCreateDefaultTenant } from "@/lib/db/tenant";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { subscribeToTenantEvents, RealtimeEventPayload } from "@/lib/realtime/bus";
 
 export const dynamic = "force-dynamic";
@@ -49,8 +49,7 @@ export async function GET(request: Request) {
     if (!admin) {
       return new Response("Unauthorized", { status: 401 });
     }
-    const defaultTenant = await getOrCreateDefaultTenant();
-    tenantId = defaultTenant.id;
+    tenantId = await getAdminTenantId(admin);
   }
 
   const encoder = new TextEncoder();

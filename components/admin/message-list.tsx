@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Archive, Check, MailOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { StatusMessage } from "@/components/admin/form-field";
 import { updateMessageStatusAction } from "@/app/admin/actions/messages";
 import { formatDateTime } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
@@ -30,9 +31,31 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
   const currentFilter = searchParams.get("status") ?? "ALL";
   const [expanded, setExpanded] = React.useState<string | null>(null);
 
-  async function setStatus(id: string, status: string) {
-    await updateMessageStatusAction(id, status);
-    router.refresh();
+  const [pending, startTransition] = React.useTransition();
+  const [statuses, setStatuses] = React.useState<Record<string, string>>({});
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+
+  function setStatus(id: string, status: string) {
+    const previous = statuses[id];
+    setError(null);
+    setStatuses((prev) => ({ ...prev, [id]: status }));
+    startTransition(async () => {
+      const result = await updateMessageStatusAction(id, status);
+      if (!result.ok) {
+        // Roll the optimistic status back.
+        setStatuses((prev) => {
+          const next = { ...prev };
+          if (previous === undefined) delete next[id];
+          else next[id] = previous;
+          return next;
+        });
+        setError(result.error ?? "Could not update the message.");
+        return;
+      }
+      setNotice(`Message marked ${status.toLowerCase()}.`);
+      router.refresh();
+    });
   }
 
   return (
@@ -62,14 +85,18 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
         ))}
       </nav>
 
+      <StatusMessage ok={notice} error={error} />
+
       {messages.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
           <p className="heading-display text-xl">No messages here</p>
-          <p className="mt-2 text-sm text-muted-foreground">New enquiries will appear in this inbox.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{currentFilter === "ALL" ? "Nothing here yet. Messages appear in this inbox when a visitor submits the contact form on the public Contact page." : "No messages have this status. Choose All to see every message."}</p>
         </div>
       ) : (
         <ul className="space-y-3">
-          {messages.map((message) => (
+          {messages.map((row) => {
+            const message = { ...row, status: statuses[row.id] ?? row.status };
+            return (
             <li key={message.id} className="rounded-xl border border-border bg-card shadow-card">
               <button
                 type="button"
@@ -86,7 +113,7 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
                     <Badge variant={statusBadge(message.status)}>{message.status.toLowerCase()}</Badge>
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
-                    {message.name} · {message.email} · {formatDateTime(message.createdAt)}
+                    {message.name} - {message.email} - {formatDateTime(message.createdAt)}
                   </p>
                 </div>
                 <MailOpen className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -116,8 +143,9 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
                     {message.status !== "REPLIED" ? (
                       <button
                         type="button"
+                        disabled={pending}
                         onClick={() => setStatus(message.id, "REPLIED")}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-sm font-medium transition-colors hover:bg-success/10 hover:text-success"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-sm font-medium disabled:opacity-60 transition-colors hover:bg-success/10 hover:text-success"
                       >
                         <Check className="h-3.5 w-3.5" aria-hidden="true" />
                         Mark replied
@@ -126,8 +154,9 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
                     {message.status !== "ARCHIVED" ? (
                       <button
                         type="button"
+                        disabled={pending}
                         onClick={() => setStatus(message.id, "ARCHIVED")}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-sm font-medium disabled:opacity-60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
                         <Archive className="h-3.5 w-3.5" aria-hidden="true" />
                         Archive
@@ -137,7 +166,8 @@ export function MessageList({ messages }: { messages: AdminMessageRow[] }) {
                 </div>
               ) : null}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

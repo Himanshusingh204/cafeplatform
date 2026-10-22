@@ -84,7 +84,7 @@ function WaitlistTrackerContent() {
       <div className="w-full max-w-xl space-y-6">
         {/* Header Branding */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-[#8f3320] text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
             Live Dine-In Queue
           </div>
@@ -108,27 +108,27 @@ function WaitlistTrackerContent() {
 
             {/* Status Banner */}
             {entry.status === "NOTIFIED" ? (
-              <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 text-amber-300 flex items-center gap-3 animate-pulse">
+              <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 text-amber-800 dark:text-amber-300 flex items-center gap-3 animate-pulse">
                 <Bell className="w-6 h-6 shrink-0" />
                 <div>
                   <div className="font-bold text-sm">YOUR TABLE IS READY!</div>
-                  <div className="text-xs text-amber-300/90">
+                  <div className="text-xs text-amber-800 dark:text-amber-300">
                     Please proceed to the restaurant hostess stand to be seated immediately.
                   </div>
                 </div>
               </div>
             ) : entry.status === "SEATED" ? (
-              <div className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 flex items-center gap-3">
+              <div className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-800 dark:text-emerald-400 flex items-center gap-3">
                 <CheckCircle2 className="w-6 h-6 shrink-0" />
                 <div>
                   <div className="font-bold text-sm">Party Seated!</div>
-                  <div className="text-xs text-emerald-400/90">
+                  <div className="text-xs text-emerald-800 dark:text-emerald-400">
                     Enjoy your royal dining experience at Spice & Saffron.
                   </div>
                 </div>
               </div>
             ) : entry.status === "CANCELLED" ? (
-              <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs">
+              <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-800 dark:text-rose-400 text-xs">
                 This waitlist entry has been cancelled.
               </div>
             ) : (
@@ -202,7 +202,7 @@ function WaitlistTrackerContent() {
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium">
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-800 dark:text-rose-400 text-xs font-medium">
                 {errorMsg}
               </div>
             )}
@@ -232,8 +232,9 @@ function WaitlistTrackerContent() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-foreground mb-1.5">Party Size</label>
+                  <label htmlFor="partySize" className="block font-semibold text-foreground mb-1.5">Party Size</label>
                   <select
+                    id="partySize"
                     name="partySize"
                     defaultValue="2"
                     className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"

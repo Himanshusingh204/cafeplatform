@@ -3,6 +3,7 @@ import { detectSpamScore, isSpam } from "@/lib/validation/contact";
 import { rateLimit } from "@/lib/rate-limit/limiter";
 import { limits } from "@/config/limits";
 import { createContactMessage } from "@/lib/services/messages";
+import { resolveTenant } from "@/lib/db/tenant";
 import { sendContactNotification } from "@/lib/email/notifier";
 import { checkOrigin, getClientIp, getIpHash } from "@/lib/api/request";
 import { ok, rateLimited, serverError, forbidden, validationError } from "@/lib/api/response";
@@ -72,7 +73,8 @@ export async function POST(request: Request) {
   const ipHash = await getIpHash();
 
   try {
-    await createContactMessage({ name, email, phone, subject, message, ipHash });
+    const tenant = await resolveTenant();
+    await createContactMessage({ tenantId: tenant.id, name, email, phone, subject, message, ipHash });
   } catch (error) {
     logger.error({ event: "contact.submit", result: "failed", error: String(error) });
     return serverError();

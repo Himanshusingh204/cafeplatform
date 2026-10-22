@@ -495,6 +495,7 @@ immediately on any suspected exposure.
 | `ADMIN_NAME` | Bootstrap-only | Server-only | Display name | `Himanshu` | N/A | Default `Café Owner`. |
 | `ADMIN_ROLE` | Bootstrap-only | Server-only | Role | `SUPER_ADMIN` | N/A | Default `SUPER_ADMIN`. Grant the least privilege needed. |
 | `SEED_DEMO_DATA` | Local/test only | Server-only | Seeds demo dishes/categories/gallery | `true` / `false` | N/A | **Never `true` in production.** |
+| `TAX_RATE_PERCENT` | Optional | Server-only | Restaurant GST applied to the taxable amount (subtotal minus discounts), **as a percentage** | `5`, `12.5` | `5` | Read at module load by `config/pricing.ts`. The storefront and the API share one rule (`lib/money/cart.ts`), so a change here moves both. A per-tenant rate arrives with `Tenant.taxRatePercent` in Phase 2. |
 | `CAFE_NAME` | Optional | Server-only | Seed override: brand name | `Spice & Saffron` | N/A | Seed-time only. |
 | `CAFE_TAGLINE` | Optional | Server-only | Seed override: tagline | string | N/A | Seed-time only. |
 | `CAFE_PHONE` | Optional | Server-only | Seed override: phone | `+91 ...` | N/A | Seed-time only. |
@@ -797,6 +798,21 @@ Follow these steps in order — do **not** manually flip payment status until st
 
 ## 11. Background jobs & cron
 
+### 11.0 Durable outbox (current for order receipts)
+
+Order receipts are rows in `OutboxEvent`, inserted in the same transaction as the order.
+They are drained by (a) `after(() => processOutbox(5))` right after each order (Next 16
+`after()`, best effort) and (b) `GET /api/cron/outbox`, which requires
+`Authorization: Bearer $CRON_SECRET` (Vercel Cron sends it automatically; set `CRON_SECRET`
+in production or the route returns 503). `vercel.json` ships the safe **daily** schedule
+(`0 3 * * *`, Hobby-compatible). Vercel **Pro is required** for sub-daily crons: change the
+schedule to `*/5 * * * *` on Pro, or call the route from an external scheduler. Without
+email configured (`EMAIL_API_KEY`) no event is enqueued. Rows retry with backoff
+(30s x 2^n, max 1h) and become `DEAD` after 6 attempts; inspect with
+`SELECT * FROM "OutboxEvent" WHERE status='DEAD'` and requeue by setting `status='PENDING'`,
+`attempts=0`. A row stuck in `PROCESSING` is reclaimed after a 2 minute lease.
+Delivery is at-least-once (a crash after sending can re-send a receipt).
+
 ### 11.1 Current implementation (defect)
 
 `lib/queue/job-queue.ts` is a **single-process** `JobQueue`: an in-memory array drained by a
@@ -879,7 +895,7 @@ blind-replay a DLQ whose failure cause is unknown — you will amplify the failu
 | :--- | :--- | :--- | :--- |
 | **Liveness** (Next) | `GET /api/health` | Returns `{ status, timestamp }`; **no DB/Redis check** | Restart only if the process is unresponsive, not on a DB blip |
 | **Liveness** (Express) | `GET /health`, `GET /api/health` | `SELECT 1` | `503` + `{ status: "unhealthy" }` when the DB is unreachable |
-| **Readiness** **[PROPOSED]** | e.g. `GET /api/ready` | **DB AND Redis** | Return `degraded` (still 200, still serving) when only Redis is down; `503` only when the DB is down. **Does not exist yet.** |
+| **Readiness** | `GET /api/ready` (Express: `/ready`) | Postgres `SELECT 1` (2 s timeout), Redis `PING` when configured, PENDING outbox older than 15 min | `200 {status:"ok"\|"degraded"}`; `503` only when Postgres is down. Body lists per-check `ok/fail/skipped`, no error details. |
 
 The Next `/api/health` handler deliberately does minimal work, so it is a liveness probe, not a
 readiness probe. Do not wire it to a load-balancer "remove instance" decision without adding the
@@ -1345,3 +1361,89 @@ The script requires `json.status === "healthy"`. If it fails:
 ---
 
 © 2026 Himanshu. All Rights Reserved.
+
+---
+
+## 19. Content-Security-Policy trial (report-only)
+
+The enforcing `Content-Security-Policy` (in `next.config.ts`) still allows
+`'unsafe-inline'` scripts because the Next.js bootstrap needs them. A stricter
+`Content-Security-Policy-Report-Only` header is served alongside it: identical
+except `script-src` drops `'unsafe-inline'` and `'unsafe-eval'` (Razorpay and
+Stripe hosts kept) and it adds `report-uri /api/csp-report`. Nothing is blocked by
+the trial policy; browsers only report what it would have blocked.
+
+`POST /api/csp-report` accepts `application/csp-report` and
+`application/reports+json`, rejects bodies over 10 KB, validates the shape,
+rate limits per IP (30/min), logs one `csp.violation` JSON line and returns 204.
+It needs no auth or CSRF token because browsers send reports without credentials.
+
+**Trial window:** run for at least 14 days across a normal traffic mix, including
+checkout with Razorpay and Stripe, admin, and the KDS.
+
+**Promotion criteria:** promote the report-only script policy to enforcing only when
+(1) `csp.violation` lines for `script-src` have been at or near zero for 7
+consecutive days after discarding browser-extension noise (`blocked` values such as
+`chrome-extension:` or `moz-extension:`), and (2) the remaining inline bootstrap
+scripts are covered by a nonce or hash strategy (for example a `proxy.ts` nonce)
+since header-only config cannot supply nonces. Until then the enforcing policy
+stays unchanged.
+
+---
+
+## 20. Observability runbooks (Phase 7)
+
+**Endpoints.** `GET /api/health` liveness; `GET /api/ready` readiness; `GET /api/metrics` Prometheus
+text, `Authorization: Bearer $METRICS_TOKEN` (404 when unset). Counters are per instance: scrape every
+instance. Gauges `outbox_pending`, `outbox_oldest_pending_age_seconds`, `outbox_dead` are read from
+Postgres. Logs are JSON (`timestamp`, `level`, `event`, `requestId`); `authorization`, `cookie`,
+`password`, `token`, `apiKey`, `email`, `phone` are redacted.
+
+### 20.1 Database down
+1. `/api/ready` returns 503; `/api/health` stays 200 (do not restart on this alone).
+2. Check provider status, connection limits and credentials; verify the pooled URL.
+3. Orders fail with 5xx and are not accepted; clients retry with their `Idempotency-Key`.
+4. After recovery confirm `/api/ready` is 200 and the outbox drains (20.3).
+
+### 20.2 Redis down
+1. `/api/ready` reports `degraded` (redis `fail`); service continues on in-memory fallback.
+2. In production, order ingestion returns 503 when no shared rate-limit/idempotency backend exists
+   (by design, prevents duplicate orders). Restore Upstash or fix the token.
+
+### 20.3 Outbox backlog / DEAD events
+```sql
+-- backlog and age
+SELECT status, count(*), min("createdAt") FROM "OutboxEvent" GROUP BY status;
+-- why DEAD
+SELECT id, type, attempts, "lastError" FROM "OutboxEvent" WHERE status = 'DEAD' ORDER BY "createdAt" DESC LIMIT 50;
+-- requeue DEAD after fixing the cause
+UPDATE "OutboxEvent" SET status = 'PENDING', attempts = 0, "nextAttemptAt" = now(), "lastError" = NULL, "processedAt" = NULL
+WHERE status = 'DEAD' AND type = '<type>';
+```
+Trigger a drain with `GET /api/cron/outbox` (bearer `CRON_SECRET`). Handlers must be idempotent.
+
+### 20.4 Email provider failing
+Email is sent from outbox handlers, so failures show as `outbox.failed` logs and growing PENDING.
+Verify `EMAIL_API_KEY` and the sender domain; fix, then let retries run or requeue DEAD (20.3).
+
+### 20.5 High 5xx
+Check `http_requests_total{status_class="5xx"}` and `api.error` logs by `requestId`; correlate with the
+last deploy (roll back per section 14), then `/api/ready` for DB/Redis, then outbox gauges.
+
+### 20.6 Backup / restore drill
+1. Take or select a point-in-time backup (provider PITR or `pg_dump -Fc`).
+2. Restore into a scratch database, never production: `pg_restore --clean --no-owner -d <scratch> dump`.
+3. Run `prisma migrate status` against it; query row counts for `Order`, `OutboxEvent`, `Tenant`.
+4. Record elapsed time against RPO 5 min / RTO 1 h and file gaps. Repeat quarterly (section 8.7).
+
+### 20.7 Alert thresholds (SLOs, MASTER_PLAN section 10)
+
+| Signal | Warn | Page |
+| :--- | :--- | :--- |
+| `/api/ready` non-200 | 1 failure | 3 consecutive (1 min) |
+| 5xx rate | > 0.5% / 5 min | > 2% / 5 min |
+| API p95 latency | read > 250 ms, write > 500 ms | 2x target for 10 min |
+| `outbox_oldest_pending_age_seconds` | > 60 | > 900 |
+| `outbox_dead` | > 0 | > 10 or rising |
+| Payment webhook success | < 99.5% | < 98% |
+| Availability | 99.9% storefront / 99.5% admin | budget burn > 2x |

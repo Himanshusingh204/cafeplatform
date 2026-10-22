@@ -10,6 +10,11 @@ export const permissions = {
   MANAGE_SETTINGS: "MANAGE_SETTINGS",
   VIEW_ACTIVITY: "VIEW_ACTIVITY",
   MANAGE_USERS: "MANAGE_USERS",
+  // Operational mutations are separated from read access so a content editor
+  // cannot move money/fulfilment state, change bookings, or moderate reviews.
+  MANAGE_ORDERS: "MANAGE_ORDERS",
+  MANAGE_RESERVATIONS: "MANAGE_RESERVATIONS",
+  MODERATE_REVIEWS: "MODERATE_REVIEWS",
 } as const;
 
 export type Permission = (typeof permissions)[keyof typeof permissions];
@@ -25,6 +30,9 @@ const rolePermissions: Record<AdminRole, readonly Permission[]> = {
     permissions.VIEW_MESSAGES,
     permissions.MANAGE_SETTINGS,
     permissions.VIEW_ACTIVITY,
+    permissions.MANAGE_ORDERS,
+    permissions.MANAGE_RESERVATIONS,
+    permissions.MODERATE_REVIEWS,
   ],
   EDITOR: [
     permissions.VIEW_MENU,

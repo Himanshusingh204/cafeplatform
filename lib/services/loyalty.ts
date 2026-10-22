@@ -2,6 +2,8 @@ import "server-only";
 
 import { db } from "@/lib/db/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
+import { toMajorUnits } from "@/lib/money";
+import { loyaltyDiscountMinorUnits } from "@/config/pricing";
 import type { LoyaltyTier } from "@/lib/generated/prisma/enums";
 
 export interface CustomerProfileInput {
@@ -170,7 +172,11 @@ export async function processLoyaltyForOrder(orderId: string) {
 }
 
 /**
- * Redeem loyalty points for a discount (100 pts = ₹50 discount)
+ * Redeem loyalty points for a discount (100 pts = ₹50 discount).
+ *
+ * The value of a redemption block lives in `config/pricing.ts`, shared with the
+ * order service, so what the customer is charged and what the ledger records can
+ * never disagree.
  */
 export async function redeemPoints(
   customerId: string,
@@ -195,7 +201,7 @@ export async function redeemPoints(
     );
   }
 
-  const discountAmount = Math.floor(pointsToRedeem / 100) * 50;
+  const discountAmount = toMajorUnits(loyaltyDiscountMinorUnits(pointsToRedeem));
 
   const updatedCustomer = await db.customerUser.update({
     where: { id: customerId },

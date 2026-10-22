@@ -2,14 +2,31 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 
+import { z } from "zod";
+
 import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
 import { broadcastEvent } from "@/lib/realtime/bus";
 import { dispatchWebhook } from "@/lib/webhooks/dispatcher";
 import { depleteInventoryForOrder } from "@/lib/services/inventory";
 import { occupyTableWithOrder, freeTable } from "@/lib/services/tables";
-import { processLoyaltyForOrder, redeemPoints } from "@/lib/services/loyalty";
-import { sendOrderReceipt } from "@/lib/email/notifier";
+import { processLoyaltyForOrder } from "@/lib/services/loyalty";
+import { after } from "next/server";
+import { isEmailConfigured } from "@/lib/email/notifier";
+import { enqueueOutboxEvent } from "@/lib/outbox/enqueue";
+import { ORDER_RECEIPT_EVENT } from "@/lib/outbox/handlers";
+import { processOutbox } from "@/lib/outbox/process";
+import {
+  applyRatePercent,
+  toDecimalString,
+  toMajorUnits,
+  toMinorUnits,
+  MoneyError,
+} from "@/lib/money";
+import { priceCart } from "@/lib/money/cart";
+import { getTenantById, resolveTenant } from "@/lib/db/tenant";
+import { assertWithinPlan } from "@/lib/plans";
+import { loyaltyDiscountMinorUnits, resolveTaxRatePercent } from "@/config/pricing";
 import type { OrderStatus, PaymentStatus, DiningMode } from "@/lib/generated/prisma/enums";
 
 /**
@@ -23,10 +40,30 @@ export class OrderValidationError extends Error {
   }
 }
 
+/**
+ * Read a money value from untrusted input, converting a parse failure into a
+ * business-rule error (HTTP 422) rather than a 500. See `lib/money`.
+ */
+function moneyOrThrow(value: unknown, message: string): number {
+  try {
+    return toMinorUnits(value as number | string);
+  } catch (error) {
+    if (error instanceof MoneyError) throw new OrderValidationError(message);
+    throw error;
+  }
+}
+
 export interface OrderItemModifierInput {
-  groupName: string;
-  optionName: string;
-  priceDelta: number;
+  /** Catalog modifier option id. Preferred: its database delta is authoritative. */
+  optionId?: string;
+  /** Legacy name-based selector, matched against the dish's catalog options. */
+  groupName?: string;
+  optionName?: string;
+  /**
+   * Legacy client-supplied delta. Accepted for wire compatibility and ignored:
+   * the catalog delta always wins, so a client can never mark its own modifier up.
+   */
+  priceDelta?: number;
 }
 
 export interface OrderItemInput {
@@ -40,7 +77,7 @@ export interface OrderItemInput {
 }
 
 export interface CreateOrderInput {
-  /** Owning tenant. Omit only for legacy, tenant-less orders. */
+  /** Owning tenant. When omitted, the default tenant is used only if allowed (see lib/db/tenant.ts). */
   tenantId?: string | null;
   customerName: string;
   customerEmail: string;
@@ -56,38 +93,136 @@ export interface CreateOrderInput {
   paymentMethod?: "PAY_AT_PICKUP" | "CARD_ONLINE";
   /** Explicit override for trusted B2B callers (e.g. a POS that already took payment). */
   paymentStatus?: PaymentStatus;
+  /**
+   * Permit items without a `dishId` (custom/ad-hoc lines priced by the caller).
+   * Only trusted internal callers (S2S POS, admin tools) may enable this; the
+   * public storefront path must never be able to name its own price.
+   */
+  allowAdHoc?: boolean;
 }
 
-export async function validateCoupon(code: string, subtotal: number) {
+/**
+ * The only shape the anonymous storefront may submit.
+ *
+ * Zod strips unknown keys by default, so a caller that injects `paymentStatus`,
+ * `tenantId`, `total`, `subtotal`, `tax`, `discount` or `loyaltyPointsUsed` does
+ * not reach `createOrder` with those fields. `priceDelta` and `price` are
+ * accepted for wire compatibility with older clients but are never trusted —
+ * `createOrder` derives every rupee from the catalog.
+ */
+export const publicOrderInputSchema = z.object({
+  customerName: z.string().trim().min(2).max(100),
+  customerEmail: z.string().email().max(254),
+  customerPhone: z.string().trim().min(8).max(20),
+  pickupTime: z.string().max(80).optional(),
+  diningMode: z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY"]).optional(),
+  tableNumber: z.string().max(20).optional(),
+  tip: z.number().nonnegative().max(100000).optional(),
+  specialInstructions: z.string().max(500).optional(),
+  couponCode: z.string().trim().max(40).optional(),
+  loyaltyPointsToRedeem: z.number().int().nonnegative().optional(),
+  paymentMethod: z.enum(["PAY_AT_PICKUP", "CARD_ONLINE"]).optional(),
+  items: z
+    .array(
+      z.object({
+        // The public path is catalog-only: an ad-hoc line would reintroduce a
+        // caller-controlled price.
+        dishId: z.string().uuid(),
+        dishName: z.string().min(1).max(200),
+        quantity: z.number().int().positive().max(99),
+        price: z.number().nonnegative().optional(),
+        station: z.string().max(40).optional(),
+        modifiers: z
+          .array(
+            z
+              .object({
+                optionId: z.string().uuid().optional(),
+                groupName: z.string().max(80).optional(),
+                optionName: z.string().max(80).optional(),
+                priceDelta: z.number().optional(),
+              })
+              .refine(
+                (m) => Boolean(m.optionId) || Boolean(m.groupName && m.optionName),
+                { message: "Each modifier needs an optionId or a group and option name." }
+              )
+          )
+          .max(20)
+          .optional(),
+      })
+    )
+    .min(1, "Your takeaway bag is empty.")
+    .max(50),
+});
+
+export type PublicOrderInput = z.infer<typeof publicOrderInputSchema>;
+
+/** The customer-facing shape of a coupon check: major units, discriminated. */
+export type CouponValidationResult =
+  | { valid: true; code: string; discountPercent: number; discountAmount: number }
+  | { valid: false; message: string };
+
+export async function validateCoupon(
+  code: string,
+  subtotal: number,
+  tenantId?: string
+): Promise<CouponValidationResult> {
   try {
-    const coupon = await db.coupon.findUnique({
-      where: { code: code.toUpperCase().trim() },
-    });
-
-    if (!coupon || !coupon.isActive) {
-      return { valid: false, message: "Invalid or expired coupon code" };
+    const scopedTenantId = tenantId ?? (await resolveTenant()).id;
+    const result = await resolveCoupon(code, toMinorUnits(subtotal), scopedTenantId);
+    if (!result.valid) {
+      return { valid: false, message: result.message };
     }
 
-    if (coupon.validUntil && coupon.validUntil < new Date()) {
-      return { valid: false, message: "Coupon has expired" };
-    }
-
-    if (coupon.minOrder && subtotal < Number(coupon.minOrder)) {
-      return {
-        valid: false,
-        message: `Minimum order amount of ₹${coupon.minOrder} required for this coupon`,
-      };
-    }
-
-    const discountAmount = Math.round((subtotal * coupon.discountPercent) / 100);
+    // Legacy call sites (`lib/actions/public.ts`, `server/api.ts`) speak major
+    // units. The discount itself was computed exactly in minor units; only this
+    // presentation value is a float.
     return {
       valid: true,
-      code: coupon.code,
-      discountPercent: coupon.discountPercent,
-      discountAmount,
+      code: result.code,
+      discountPercent: result.discountPercent,
+      discountAmount: toMajorUnits(result.discountMinorUnits),
     };
   } catch {
     return { valid: false, message: "Error validating coupon code" };
+  }
+}
+
+/**
+ * The exact coupon rule, in minor units. `validateCoupon` is a major-unit
+ * wrapper around this; `createOrder` calls it directly so the discount it
+ * applies is never round-tripped through a float.
+ */
+async function resolveCoupon(code: string, subtotalMinorUnits: number, tenantId: string) {
+  try {
+    const coupon = await db.coupon.findUnique({
+      where: { tenantId_code: { tenantId, code: code.toUpperCase().trim() } },
+    });
+
+    if (!coupon || !coupon.isActive) {
+      return { valid: false as const, message: "Invalid or expired coupon code" };
+    }
+
+    if (coupon.validUntil && coupon.validUntil < new Date()) {
+      return { valid: false as const, message: "Coupon has expired" };
+    }
+
+    const minOrderMinorUnits = coupon.minOrder === null ? 0 : toMinorUnits(coupon.minOrder);
+    if (minOrderMinorUnits > 0 && subtotalMinorUnits < minOrderMinorUnits) {
+      return {
+        valid: false as const,
+        message: `Minimum order amount of ₹${toDecimalString(minOrderMinorUnits)} required for this coupon`,
+      };
+    }
+
+    const discountMinorUnits = applyRatePercent(subtotalMinorUnits, coupon.discountPercent);
+    return {
+      valid: true as const,
+      code: coupon.code,
+      discountPercent: coupon.discountPercent,
+      discountMinorUnits,
+    };
+  } catch {
+    return { valid: false as const, message: "Error validating coupon code" };
   }
 }
 
@@ -125,8 +260,15 @@ export async function createOrder(input: CreateOrderInput) {
     throw new OrderValidationError("Order must have at least one item.");
   }
 
+  // Fail closed: an order always belongs to a concrete tenant. An omitted
+  // tenantId resolves the default tenant only where that is explicitly allowed.
+  const tenant = input.tenantId
+    ? await getTenantById(input.tenantId)
+    : await resolveTenant();
+
   // Security Check: Look up authoritative dishes from the database when dishId is supplied.
   // This prevents attackers from tampering with client prices (e.g. buying a ₹350 dish for ₹1).
+  // Scoped to the order's tenant, so another café's dish id is treated as unavailable.
   const dishIds = input.items
     .map((item) => item.dishId)
     .filter((id): id is string => Boolean(id));
@@ -134,8 +276,23 @@ export async function createOrder(input: CreateOrderInput) {
   const dbDishes =
     dishIds.length > 0
       ? await db.dish.findMany({
-          where: { id: { in: dishIds }, deletedAt: null },
-          select: { id: true, name: true, price: true, isAvailable: true, station: true },
+          where: { id: { in: dishIds }, tenantId: tenant.id, deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            isAvailable: true,
+            station: true,
+            modifierGroups: {
+              select: {
+                id: true,
+                name: true,
+                options: {
+                  select: { id: true, name: true, priceDelta: true, isAvailable: true },
+                },
+              },
+            },
+          },
         })
       : [];
 
@@ -147,7 +304,7 @@ export async function createOrder(input: CreateOrderInput) {
       throw new OrderValidationError(`Invalid quantity for "${item.dishName}". Must be between 1 and 99.`);
     }
 
-    let authoritativeBasePrice = Number(item.price);
+    let authoritativeBasePriceMinor: number;
     let authoritativeName = item.dishName.trim();
     let station = item.station || "HOT_KITCHEN";
 
@@ -159,71 +316,142 @@ export async function createOrder(input: CreateOrderInput) {
       if (!dbDish.isAvailable) {
         throw new OrderValidationError(`Dish "${dbDish.name}" is currently marked out of stock.`);
       }
-      authoritativeBasePrice = Number(dbDish.price);
+      // The catalog price wins; a client-supplied `price` is never read here.
+      authoritativeBasePriceMinor = moneyOrThrow(
+        dbDish.price,
+        `Invalid catalog price for dish "${dbDish.name}".`
+      );
       authoritativeName = dbDish.name;
       station = dbDish.station || station;
     } else {
-      if (typeof authoritativeBasePrice !== "number" || isNaN(authoritativeBasePrice) || authoritativeBasePrice <= 0) {
+      if (!input.allowAdHoc) {
+        throw new OrderValidationError(
+          `Item "${item.dishName}" is not on the menu. Please pick a dish from the current menu.`
+        );
+      }
+      authoritativeBasePriceMinor = moneyOrThrow(
+        item.price,
+        `Invalid price for item "${item.dishName}".`
+      );
+      if (authoritativeBasePriceMinor <= 0) {
         throw new OrderValidationError(`Invalid price for item "${item.dishName}".`);
       }
     }
 
-    const validatedModifiers = (item.modifiers || []).map((m) => ({
-      groupName: String(m.groupName || "").trim(),
-      optionName: String(m.optionName || "").trim(),
-      priceDelta: Math.max(0, Number(m.priceDelta || 0)),
-    }));
+    const catalogOptions = item.dishId
+      ? (dishMap.get(item.dishId)?.modifierGroups ?? []).flatMap((group) =>
+          group.options.map((option) => ({ group, option }))
+        )
+      : [];
 
-    const modifiersDelta = validatedModifiers.reduce((sum, m) => sum + m.priceDelta, 0);
-    const unitPrice = authoritativeBasePrice + modifiersDelta;
+    const validatedModifiers = (item.modifiers || []).map((m) => {
+      const optionId = m.optionId?.trim();
+      const groupName = m.groupName?.trim() ?? "";
+      const optionName = m.optionName?.trim() ?? "";
+
+      if (catalogOptions.length === 0) {
+        throw new OrderValidationError(
+          `Modifiers are not available for item "${authoritativeName}".`
+        );
+      }
+
+      const match = optionId
+        ? catalogOptions.find((entry) => entry.option.id === optionId)
+        : catalogOptions.find(
+            (entry) =>
+              entry.group.name.toLowerCase() === groupName.toLowerCase() &&
+              entry.option.name.toLowerCase() === optionName.toLowerCase()
+          );
+
+      if (!match) {
+        // The client sent a modifier we do not sell on this dish. Never fall
+        // back to its claimed delta: that is the money-tampering path.
+        throw new OrderValidationError(
+          `Modifier "${optionName || optionId || "unknown"}" is not available for "${authoritativeName}".`
+        );
+      }
+      if (!match.option.isAvailable) {
+        throw new OrderValidationError(
+          `Modifier "${match.option.name}" is currently unavailable for "${authoritativeName}".`
+        );
+      }
+
+      return {
+        groupName: match.group.name,
+        optionName: match.option.name,
+        // Catalog delta only; `m.priceDelta` is intentionally ignored.
+        priceDeltaMinor: moneyOrThrow(
+          match.option.priceDelta,
+          `Invalid catalog price for modifier "${match.option.name}".`
+        ),
+      };
+    });
+
+    const modifiersDeltaMinor = validatedModifiers.reduce((sum, m) => sum + m.priceDeltaMinor, 0);
 
     return {
       dishId: item.dishId || null,
       dishName: authoritativeName,
       quantity: qty,
-      price: unitPrice,
+      unitPriceMinor: authoritativeBasePriceMinor + modifiersDeltaMinor,
       station,
       modifiers: validatedModifiers,
     };
   });
 
-  const subtotal = validatedItems.reduce(
-    (sum, item) => sum + item.price * item.quantity,
+  const subtotalMinor = validatedItems.reduce(
+    (sum, item) => sum + item.unitPriceMinor * item.quantity,
     0
   );
 
-  if (subtotal <= 0) {
+  if (subtotalMinor <= 0) {
     throw new OrderValidationError("Order subtotal must be greater than zero.");
   }
 
-  let discount = 0;
+  // Plan quota (Phase 9): throws PlanLimitError before anything is written.
+  await assertWithinPlan(tenant.id, "ordersPerMonth");
+
+  let couponDiscountMinor = 0;
   let appliedCoupon: string | null = null;
   if (input.couponCode) {
-    const couponResult = await validateCoupon(input.couponCode, subtotal);
-    if (couponResult.valid && couponResult.discountAmount) {
-      discount = Math.min(subtotal, couponResult.discountAmount);
+    const couponResult = await resolveCoupon(input.couponCode, subtotalMinor, tenant.id);
+    if (couponResult.valid && couponResult.discountMinorUnits > 0) {
+      couponDiscountMinor = Math.min(subtotalMinor, couponResult.discountMinorUnits);
       appliedCoupon = couponResult.code ?? null;
     }
   }
 
-  let loyaltyDiscount = 0;
+  let loyaltyDiscountMinor = 0;
   let pointsUsed = 0;
+  let loyaltyCustomerId: string | null = null;
   if (input.loyaltyPointsToRedeem && input.loyaltyPointsToRedeem >= 100) {
     const customer = await db.customerUser.findUnique({
       where: { email: input.customerEmail.toLowerCase().trim() },
     });
     if (customer && customer.loyaltyPoints >= input.loyaltyPointsToRedeem) {
       pointsUsed = input.loyaltyPointsToRedeem;
-      loyaltyDiscount = Math.floor(pointsUsed / 100) * 50;
+      loyaltyCustomerId = customer.id;
+      loyaltyDiscountMinor = loyaltyDiscountMinorUnits(pointsUsed);
     }
   }
 
-  const totalDiscount = Math.min(subtotal, discount + loyaltyDiscount);
-  const tip = Math.max(0, Math.round(Number(input.tip || 0)));
-  // Standard 5% restaurant GST
-  const taxableAmount = Math.max(0, subtotal - totalDiscount);
-  const tax = Math.round(taxableAmount * 0.05);
-  const total = taxableAmount + tax + tip;
+  let tipMinor = 0;
+  if (input.tip !== undefined && input.tip !== null) {
+    tipMinor = Math.max(0, moneyOrThrow(input.tip, "Invalid tip amount."));
+  }
+
+  // One rule, shared with the storefront: see `lib/money/cart.ts`.
+  const cart = priceCart({
+    subtotalMinorUnits: subtotalMinor,
+    couponDiscountMinorUnits: couponDiscountMinor,
+    loyaltyDiscountMinorUnits: loyaltyDiscountMinor,
+    tipMinorUnits: tipMinor,
+    taxRatePercent: resolveTaxRatePercent(tenant),
+  });
+
+  const totalDiscountMinor = cart.discountMinorUnits;
+  const taxMinor = cart.taxMinorUnits;
+  const totalMinor = cart.totalMinorUnits;
 
   const diningMode: DiningMode = input.diningMode || "TAKEAWAY";
   const pickupTime = input.pickupTime?.trim() || (diningMode === "DINE_IN" ? "DINE-IN" : "ASAP (~20–30 mins)");
@@ -235,19 +463,19 @@ export async function createOrder(input: CreateOrderInput) {
     (input.paymentMethod === "CARD_ONLINE" ? "PENDING" : "PAY_AT_PICKUP");
 
   const orderData = {
-    tenantId: input.tenantId ?? null,
+    tenantId: tenant.id,
     customerName: input.customerName.trim(),
     customerEmail: input.customerEmail.toLowerCase().trim(),
     customerPhone: input.customerPhone.trim(),
     pickupTime,
     diningMode,
     tableNumber: input.tableNumber?.trim() || null,
-    tip,
+    tip: toDecimalString(tipMinor),
     specialInstructions: input.specialInstructions?.trim() || null,
-    subtotal,
-    tax,
-    discount: totalDiscount,
-    total,
+    subtotal: toDecimalString(subtotalMinor),
+    tax: toDecimalString(taxMinor),
+    discount: toDecimalString(totalDiscountMinor),
+    total: toDecimalString(totalMinor),
     loyaltyPointsUsed: pointsUsed,
     paymentStatus,
     orderStatus: "PENDING" as const,
@@ -257,7 +485,7 @@ export async function createOrder(input: CreateOrderInput) {
         dishId: item.dishId,
         dishName: item.dishName,
         quantity: item.quantity,
-        price: item.price,
+        price: toDecimalString(item.unitPriceMinor),
         station: item.station,
         isCompleted: false,
         modifiers: item.modifiers.length > 0
@@ -265,7 +493,7 @@ export async function createOrder(input: CreateOrderInput) {
               create: item.modifiers.map((m) => ({
                 groupName: m.groupName,
                 optionName: m.optionName,
-                priceDelta: m.priceDelta,
+                priceDelta: toDecimalString(m.priceDeltaMinor),
               })),
             }
           : undefined,
@@ -273,13 +501,70 @@ export async function createOrder(input: CreateOrderInput) {
     },
   };
 
-  // Retry with a fresh number if the generated one collides on the unique index.
+  // Order creation and loyalty redemption commit together. The redemption is a
+  // conditional decrement, so two concurrent orders cannot both spend the same
+  // points: the loser matches zero rows and the whole transaction rolls back.
+  // A unique order-number collision aborts and rolls back the transaction too,
+  // so the retry below starts from a clean slate.
   const createWithRetry = async () => {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        return await db.order.create({
-          data: { ...orderData, orderNumber: generateOrderNumber() },
-          include: { items: { include: { modifiers: true } } },
+        return await db.$transaction(async (tx) => {
+          if (pointsUsed > 0 && loyaltyCustomerId) {
+            const redeemed = await tx.customerUser.updateMany({
+              where: {
+                id: loyaltyCustomerId,
+                loyaltyPoints: { gte: pointsUsed },
+              },
+              data: { loyaltyPoints: { decrement: pointsUsed } },
+            });
+            if (redeemed.count === 0) {
+              throw new OrderValidationError(
+                "Your loyalty-point balance changed. Please refresh and try again."
+              );
+            }
+          }
+
+          const created = await tx.order.create({
+            data: { ...orderData, orderNumber: generateOrderNumber() },
+            include: { items: { include: { modifiers: true } } },
+          });
+
+          // The ledger entry is written only after the decrement succeeded, in
+          // the same transaction, so the balance and the audit trail agree.
+          if (pointsUsed > 0 && loyaltyCustomerId) {
+            await tx.loyaltyLedger.create({
+              data: {
+                customerId: loyaltyCustomerId,
+                orderId: created.id,
+                pointsDelta: -pointsUsed,
+                reason: `Redeemed ${pointsUsed} points for ₹${toMajorUnits(loyaltyDiscountMinor)} discount`,
+              },
+            });
+          }
+
+          // Receipt goes to the durable outbox in the SAME transaction: it exists
+          // if and only if the order does. Skipped when email is unconfigured.
+          if (created.customerEmail && isEmailConfigured()) {
+            await enqueueOutboxEvent(tx, {
+              tenantId: created.tenantId,
+              type: ORDER_RECEIPT_EVENT,
+              payload: {
+                customerName: created.customerName,
+                customerEmail: created.customerEmail,
+                orderNumber: created.orderNumber,
+                pickupTime: created.pickupTime,
+                total: Number(created.total),
+                items: created.items.map((item) => ({
+                  dishName: item.dishName,
+                  quantity: item.quantity,
+                  price: Number(item.price),
+                })),
+              },
+            });
+          }
+
+          return created;
         });
       } catch (error) {
         if ((error as { code?: string }).code === "P2002" && attempt < 3) continue;
@@ -290,16 +575,6 @@ export async function createOrder(input: CreateOrderInput) {
   };
 
   const order = await createWithRetry();
-
-  // Deduct redeemed loyalty points if any
-  if (pointsUsed > 0) {
-    const customer = await db.customerUser.findUnique({
-      where: { email: order.customerEmail },
-    });
-    if (customer) {
-      await redeemPoints(customer.id, pointsUsed, order.id).catch(() => {});
-    }
-  }
 
   // Deplete inventory and auto-86 if stock reaches 0
   await depleteInventoryForOrder(order.id).catch((err) => {
@@ -352,20 +627,12 @@ export async function createOrder(input: CreateOrderInput) {
     },
   }).catch(() => {});
 
-  // Best-effort customer receipt. Phase 3 replaces this direct call with the
-  // durable outbox so it survives a deploy; today it must never fail an order.
-  void sendOrderReceipt({
-    customerName: order.customerName,
-    customerEmail: order.customerEmail,
-    orderNumber: order.orderNumber,
-    pickupTime: order.pickupTime,
-    total: Number(order.total),
-    items: order.items.map((item) => ({
-      dishName: item.dishName,
-      quantity: item.quantity,
-      price: Number(item.price),
-    })),
-  }).catch(() => {});
+  // Opportunistic drain after the response; the cron route is the guaranteed path.
+  try {
+    after(() => processOutbox(5).catch(() => {}));
+  } catch {
+    // Not inside a Next request scope (e.g. the Express adapter or tests).
+  }
 
   return order;
 }
@@ -408,13 +675,14 @@ export async function listOrdersAdmin(options?: {
   status?: OrderStatus;
   page?: number;
   pageSize?: number;
+  tenantId?: string;
 }) {
   try {
     const page = Math.max(1, options?.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, options?.pageSize ?? 30));
     const skip = (page - 1) * pageSize;
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = options?.tenantId ? { tenantId: options.tenantId } : {};
     if (options?.status) {
       where.orderStatus = options.status;
     }
@@ -446,10 +714,12 @@ export async function listOrdersAdmin(options?: {
 export async function updateOrderStatus(
   id: string,
   status: OrderStatus,
-  actorId?: string | null
+  actorId?: string | null,
+  tenantId?: string
 ) {
+  // With a tenantId, an id from another tenant matches nothing and Prisma throws P2025.
   const updated = await db.order.update({
-    where: { id },
+    where: tenantId ? { id, tenantId } : { id },
     data: { orderStatus: status },
   });
 
@@ -461,10 +731,9 @@ export async function updateOrderStatus(
     metadata: { newStatus: status, orderNumber: updated.orderNumber },
   });
 
-  const tenantId = updated.tenantId || "spice-saffron";
   broadcastEvent({
     type: "order:status_changed",
-    tenantId,
+    tenantId: updated.tenantId,
     timestamp: new Date().toISOString(),
     data: {
       id: updated.id,
@@ -475,7 +744,7 @@ export async function updateOrderStatus(
 
   dispatchWebhook({
     event: "order.status_changed",
-    tenantId,
+    tenantId: updated.tenantId,
     data: {
       id: updated.id,
       orderNumber: updated.orderNumber,
@@ -492,10 +761,11 @@ export async function updateOrderStatus(
 
 export async function updateOrderItemCompletion(
   orderItemId: string,
-  isCompleted: boolean
+  isCompleted: boolean,
+  tenantId?: string
 ) {
   const item = await db.orderItem.update({
-    where: { id: orderItemId },
+    where: tenantId ? { id: orderItemId, order: { tenantId } } : { id: orderItemId },
     data: { isCompleted },
     include: {
       order: {
@@ -515,10 +785,9 @@ export async function updateOrderItemCompletion(
     await updateOrderStatus(item.order.id, "READY");
   }
 
-  const tenantId = item.order.tenantId || "spice-saffron";
   broadcastEvent({
     type: "kds:item_bumped",
-    tenantId,
+    tenantId: item.order.tenantId,
     timestamp: new Date().toISOString(),
     data: {
       orderId: item.order.id,
@@ -531,23 +800,25 @@ export async function updateOrderItemCompletion(
   return item;
 }
 
-export async function getOrderStats() {
+export async function getOrderStats(tenantId?: string) {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const scope = tenantId ? { tenantId } : {};
 
     const [activeOrders, completedToday, totalRevenueAgg] = await Promise.all([
       db.order.count({
-        where: { orderStatus: { in: ["PENDING", "CONFIRMED", "PREPARING", "READY"] } },
+        where: { ...scope, orderStatus: { in: ["PENDING", "CONFIRMED", "PREPARING", "READY"] } },
       }),
       db.order.count({
         where: {
+          ...scope,
           orderStatus: "COMPLETED",
           createdAt: { gte: today },
         },
       }),
       db.order.aggregate({
-        where: { orderStatus: { not: "CANCELLED" }, createdAt: { gte: today } },
+        where: { ...scope, orderStatus: { not: "CANCELLED" }, createdAt: { gte: today } },
         _sum: { total: true },
       }),
     ]);

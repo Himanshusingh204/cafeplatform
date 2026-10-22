@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { getAllTables } from "@/lib/services/tables";
 import { getActiveWaitlist } from "@/lib/services/waitlist";
 import { FloorplanManager } from "@/components/admin/floorplan-manager";
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Floorplan & Waitlist" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminTablesPage() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
 
   const [rawTables, rawWaitlist] = await Promise.all([
     getAllTables(),
@@ -38,5 +38,11 @@ export default async function AdminTablesPage() {
     createdAt: w.createdAt,
   }));
 
-  return <FloorplanManager initialTables={tables} initialWaitlist={waitlist} />;
+  return (
+    <FloorplanManager
+      initialTables={tables}
+      initialWaitlist={waitlist}
+      canManageTables={hasPermission(admin.role, permissions.MANAGE_SETTINGS)}
+    />
+  );
 }

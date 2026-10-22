@@ -16,13 +16,14 @@ export async function POST(request: Request) {
 
   const ipKey = (await getClientIp()) ?? "unknown";
 
+  // Per-IP throttle runs before any parsing so malformed floods are also counted.
+  const limiter = await rateLimit(`login:${ipKey}`, limits.login.max, limits.login.windowMs);
+  if (!limiter.success) return rateLimited(limiter.retryAfterMs);
+
   const parsed = loginSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return fail("VALIDATION_ERROR", "Please check your email and password.", 422);
 
   const { email, password } = parsed.data;
-
-  const limiter = await rateLimit(`login:${ipKey}`, limits.login.max, limits.login.windowMs);
-  if (!limiter.success) return rateLimited(limiter.retryAfterMs);
 
   const accountLimiter = await rateLimit(`login-account:${email}`, limits.login.max, limits.login.windowMs);
   if (!accountLimiter.success) return rateLimited(accountLimiter.retryAfterMs);

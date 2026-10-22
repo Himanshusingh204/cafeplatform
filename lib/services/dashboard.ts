@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "@/lib/db/prisma";
 
-export async function getDashboardStats() {
+export async function getDashboardStats(tenantId: string) {
   try {
     const [
       totalDishes,
@@ -16,16 +16,16 @@ export async function getDashboardStats() {
       veganCount,
       spicyCount,
     ] = await Promise.all([
-      db.dish.count({ where: { deletedAt: null } }),
-      db.dish.count({ where: { deletedAt: null, isAvailable: true } }),
-      db.category.count({ where: { deletedAt: null, isActive: true } }),
-      db.dish.count({ where: { deletedAt: null, isFeatured: true } }),
-      db.contactMessage.count(),
-      db.contactMessage.count({ where: { status: "NEW" } }),
-      db.galleryImage.count({ where: { isPublished: true } }),
-      db.dish.count({ where: { deletedAt: null, isVegetarian: true } }),
-      db.dish.count({ where: { deletedAt: null, isVegan: true } }),
-      db.dish.count({ where: { deletedAt: null, isSpicy: true } }),
+      db.dish.count({ where: { tenantId, deletedAt: null } }),
+      db.dish.count({ where: { tenantId, deletedAt: null, isAvailable: true } }),
+      db.category.count({ where: { tenantId, deletedAt: null, isActive: true } }),
+      db.dish.count({ where: { tenantId, deletedAt: null, isFeatured: true } }),
+      db.contactMessage.count({ where: { tenantId } }),
+      db.contactMessage.count({ where: { tenantId, status: "NEW" } }),
+      db.galleryImage.count({ where: { tenantId, isPublished: true } }),
+      db.dish.count({ where: { tenantId, deletedAt: null, isVegetarian: true } }),
+      db.dish.count({ where: { tenantId, deletedAt: null, isVegan: true } }),
+      db.dish.count({ where: { tenantId, deletedAt: null, isSpicy: true } }),
     ]);
 
     return {
@@ -59,10 +59,10 @@ export async function getDashboardStats() {
   }
 }
 
-export async function getCategoryBreakdown() {
+export async function getCategoryBreakdown(tenantId: string) {
   try {
     return await db.category.findMany({
-      where: { deletedAt: null },
+      where: { tenantId, deletedAt: null },
       orderBy: { sortOrder: "asc" },
       select: {
         id: true,
@@ -79,9 +79,10 @@ export async function getCategoryBreakdown() {
   }
 }
 
-export async function getRecentMessages(limit = 4) {
+export async function getRecentMessages(tenantId: string, limit = 4) {
   try {
     return await db.contactMessage.findMany({
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {
@@ -113,10 +114,10 @@ export async function getRecentActivity(limit = 6) {
   }
 }
 
-export async function getRecentDishes(limit = 5) {
+export async function getRecentDishes(tenantId: string, limit = 5) {
   try {
     return await db.dish.findMany({
-      where: { deletedAt: null },
+      where: { tenantId, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {

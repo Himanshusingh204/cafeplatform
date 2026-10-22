@@ -82,6 +82,13 @@ enum SubscriptionPlan {
   ENTERPRISE
 }
 
+/// Quota tier (Phase 9). Distinct from SubscriptionPlan (billing); limits live in lib/plans.
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+}
+
 enum WebhookStatus {
   SUCCESS
   FAILED
@@ -120,7 +127,10 @@ model Tenant {
   name             String
   customDomain     String?          @unique
   subscriptionPlan SubscriptionPlan @default(PRO)
+  plan             PlanTier         @default(STARTER)
   isActive         Boolean          @default(true)
+  taxRatePercent   Decimal?         @db.Decimal(5, 2)
+  currency         String           @default("INR")
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -135,9 +145,14 @@ model Tenant {
   waitlistEntries  WaitlistEntry[]
   ingredients      Ingredient[]
   customerUsers    CustomerUser[]
+  galleryImages    GalleryImage[]
+  contactMessages  ContactMessage[]
+  reviews          Review[]
+  settings         Setting[]
+  coupons          Coupon[]
 
-  @@index([slug])
-  @@index([customDomain])
+  // No @@index([slug]) / @@index([customDomain]): each column is @unique, which
+  // already creates the identical B-tree.
 }
 
 model Admin {
@@ -156,7 +171,7 @@ model Admin {
   sessions     Session[]
   activityLogs ActivityLog[]
 
-  @@index([email])
+  // email is @unique (B-tree already exists) — no duplicate @@index([email]).
   @@index([tenantId])
 }
 
@@ -176,9 +191,9 @@ model Session {
 
 model Category {
   id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String?   @db.Uuid
+  tenantId    String    @db.Uuid
   name        String
-  slug        String    @unique
+  slug        String
   description String?
   image       String?
   isActive    Boolean   @default(true)
@@ -187,20 +202,28 @@ model Category {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   dishes      Dish[]
 
+  // Slugs are unique per tenant, not globally (AUDIT P2-5).
+  @@unique([tenantId, slug])
+
+  // Serves the active-menu category list:
+  // WHERE isActive = true AND deletedAt IS NULL ORDER BY sortOrder.
+  // Postgres-only partial form (… WHERE "deletedAt" IS NULL) cannot be expressed
+  // in the Prisma schema; @@index always builds a full index. See migration
+  // 20261021000000_add_perf_indexes for the drift note.
+  @@index([isActive, deletedAt, sortOrder])
   @@index([sortOrder])
-  @@index([isActive])
   @@index([tenantId])
 }
 
 model Dish {
   id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String?  @db.Uuid
+  tenantId         String   @db.Uuid
   categoryId       String   @db.Uuid
   name             String
-  slug             String   @unique
+  slug             String
   shortDescription String
   description      String
   price            Decimal  @db.Decimal(10, 2)
@@ -220,13 +243,26 @@ model Dish {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  tenant           Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   category         Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   modifierGroups   DishModifierGroup[]
   recipeItems      RecipeItem[]
 
-  @@index([categoryId])
-  @@index([slug])
+  @@unique([tenantId, slug])
+
+  // Serves the hot per-category menu read:
+  //   WHERE categoryId = ? AND isAvailable = true AND deletedAt IS NULL
+  //   ORDER BY sortOrder
+  // Equality columns first, then the IS NULL predicate, then the sort column.
+  //
+  // LIMITATION: Prisma cannot express a partial index (`WHERE "deletedAt" IS NULL`)
+  // or CONCURRENTLY. This is therefore a full index, so soft-deleted dishes are
+  // also indexed and pay write cost. If the partial form from
+  // docs/DATABASE.md §4.7 is ever created by hand in SQL, drop this composite and
+  // keep only one of the two — shipping both doubles write amplification.
+  //
+  // Supersedes and replaces the former @@index([categoryId]) (leftmost prefix).
+  @@index([categoryId, isAvailable, deletedAt, sortOrder])
   @@index([isAvailable])
   @@index([isFeatured])
   @@index([sortOrder])
@@ -236,6 +272,7 @@ model Dish {
 
 model GalleryImage {
   id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @db.Uuid
   title       String
   altText     String
   imageUrl    String
@@ -245,12 +282,16 @@ model GalleryImage {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
   @@index([isPublished])
   @@index([sortOrder])
 }
 
 model ContactMessage {
   id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @db.Uuid
   name      String
   email     String
   phone     String?
@@ -260,7 +301,11 @@ model ContactMessage {
   ipHash    String?
   createdAt DateTime      @default(now())
 
-  @@index([status])
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  // Admin inbox: newest-first within a status (the listMessagesAdmin query).
+  @@index([status, createdAt])
   @@index([createdAt])
 }
 
@@ -277,14 +322,22 @@ model ActivityLog {
 
   @@index([actorId])
   @@index([createdAt])
-  @@index([entityType, entityId])
+  // Per-entity audit trail, newest-first; also serves the (@entityType,@entityId)
+  // lookup via its leftmost prefix.
+  @@index([entityType, entityId, createdAt])
 }
 
 model Setting {
   id        String   @id @default(uuid()) @db.Uuid
-  key       String   @unique
+  tenantId  String   @db.Uuid
+  key       String
   value     String
   updatedAt DateTime @updatedAt
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // Per-tenant key; the unique index's leftmost column serves tenantId lookups.
+  @@unique([tenantId, key])
 }
 
 model Reservation {
@@ -307,13 +360,12 @@ model Reservation {
 
   @@index([date])
   @@index([status])
-  @@index([referenceCode])
   @@index([tenantId])
 }
 
 model Order {
   id                  String        @id @default(uuid()) @db.Uuid
-  tenantId            String?       @db.Uuid
+  tenantId            String        @db.Uuid
   orderNumber         String        @unique
   customerUserId      String?       @db.Uuid
   customerName        String
@@ -340,7 +392,7 @@ model Order {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  tenant              Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant              Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customerUser        CustomerUser? @relation(fields: [customerUserId], references: [id], onDelete: SetNull)
   items               OrderItem[]
 
@@ -349,7 +401,12 @@ model Order {
   @@index([gatewayOrderId])
   @@index([customerUserId])
   @@index([createdAt])
-  @@index([tenantId])
+  // Orders API (app/api/v1/orders + server/api.ts): tenant-scoped, optional
+  // status filter, ORDER BY createdAt DESC.
+  @@index([tenantId, orderStatus, createdAt])
+  // Same query shape without a status filter (the filtered form cannot serve
+  // the createdAt sort because orderStatus sits between the two columns).
+  @@index([tenantId, createdAt])
 }
 
 model OrderItem {
@@ -417,6 +474,7 @@ model OrderItemModifier {
 
 model Review {
   id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
   customerName String
   rating       Int      @default(5)
   title        String
@@ -427,6 +485,9 @@ model Review {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
   @@index([isApproved])
   @@index([isFeatured])
   @@index([createdAt])
@@ -434,14 +495,18 @@ model Review {
 
 model Coupon {
   id              String    @id @default(uuid()) @db.Uuid
-  code            String    @unique
+  tenantId        String    @db.Uuid
+  code            String
   discountPercent Int
   minOrder        Decimal?  @db.Decimal(10, 2)
   isActive        Boolean   @default(true)
   validUntil      DateTime?
   createdAt       DateTime  @default(now())
 
-  @@index([code])
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // Per-tenant code; the unique index's leftmost column serves tenantId lookups.
+  @@unique([tenantId, code])
   @@index([isActive])
 }
 
@@ -461,7 +526,7 @@ model ApiKey {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
-  @@index([keyHash])
+  // keyHash is @unique (the hot auth lookup uses that B-tree) — no duplicate.
 }
 
 model WebhookSubscription {
@@ -570,7 +635,7 @@ model WaitlistEntry {
 
   tenant               Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@index([tenantId])
+  @@index([tenantId, status, createdAt])
   @@index([status])
   @@index([createdAt])
 }
@@ -592,7 +657,6 @@ model CustomerUser {
   ledgerEntries LoyaltyLedger[]
 
   @@index([tenantId])
-  @@index([email])
   @@index([loyaltyTier])
 }
 
@@ -606,7 +670,31 @@ model LoyaltyLedger {
 
   customer    CustomerUser @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@index([customerId])
+  // A customer's statement: newest-first, served by one range scan.
+  @@index([customerId, createdAt])
   @@index([orderId])
   @@index([createdAt])
+}
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DONE
+  DEAD
+}
+
+/// Durable outbox (AUDIT P0-2). Written in the same transaction as the business
+/// row, drained by lib/outbox/processOutbox with FOR UPDATE SKIP LOCKED.
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String       @db.Uuid
+  type          String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  lastError     String?
+  createdAt     DateTime     @default(now())
+  processedAt   DateTime?
+
+  @@index([status, nextAttemptAt])
 }

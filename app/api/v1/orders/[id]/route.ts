@@ -1,3 +1,4 @@
+import { apiError } from "@/lib/api/errors";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyS2SRequest } from "@/lib/auth/s2s";
@@ -12,6 +13,9 @@ const patchOrderSchema = z.object({
   paymentStatus: z.enum(["PENDING", "PAID", "PAY_AT_PICKUP"]).optional(),
 });
 
+/** Order id (uuid) or order number: a short printable token, never free text. */
+const routeIdSchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -23,16 +27,20 @@ interface RouteParams {
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await verifyS2SRequest(request, "orders:read");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
-  const { id } = await params;
+  const parsedId = routeIdSchema.safeParse((await params).id);
+  if (!parsedId.success) {
+    return apiError(404, "Order not found");
+  }
+  const id = parsedId.data;
   const tenantId = auth.context.tenantId;
 
   const order = await db.order.findFirst({
     where: {
       OR: [{ id }, { orderNumber: id }],
-      AND: [{ OR: [{ tenantId }, { tenantId: null }] }],
+      tenantId,
     },
     include: {
       items: true,
@@ -40,7 +48,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   });
 
   if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return apiError(404, "Order not found");
   }
 
   return NextResponse.json({ order });
@@ -53,36 +61,37 @@ export async function GET(request: Request, { params }: RouteParams) {
 export async function PATCH(request: Request, { params }: RouteParams) {
   const auth = await verifyS2SRequest(request, "orders:write");
   if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return apiError(auth.status, auth.error);
   }
 
-  const { id } = await params;
+  const parsedId = routeIdSchema.safeParse((await params).id);
+  if (!parsedId.success) {
+    return apiError(404, "Order not found");
+  }
+  const id = parsedId.data;
   const tenantId = auth.context.tenantId;
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return apiError(400, "Invalid JSON payload");
   }
 
   const parsed = patchOrderSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
-      { status: 422 }
-    );
+    return apiError(422, "Validation failed", undefined, { details: parsed.error.flatten().fieldErrors });
   }
 
   const order = await db.order.findFirst({
     where: {
       OR: [{ id }, { orderNumber: id }],
-      AND: [{ OR: [{ tenantId }, { tenantId: null }] }],
+      tenantId,
     },
   });
 
   if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return apiError(404, "Order not found");
   }
 
   const updated = await db.order.update({

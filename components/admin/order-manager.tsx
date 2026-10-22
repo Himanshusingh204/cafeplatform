@@ -30,11 +30,19 @@ export interface OrderRow {
   }>;
 }
 
-export function OrderManager({ orders: initialRows }: { orders: OrderRow[] }) {
+export function OrderManager({
+  orders: initialRows,
+  canManage = false,
+}: {
+  orders: OrderRow[];
+  canManage?: boolean;
+}) {
   const [rows, setRows] = React.useState(initialRows);
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
   const [loadingId, setLoadingId] = React.useState<string | null>(null);
+  const [dateFilter, setDateFilter] = React.useState("");
+  const [message, setMessage] = React.useState<{ kind: "error" | "success"; text: string } | null>(null);
 
   const filtered = rows.filter((o) => {
     const matchesSearch =
@@ -42,15 +50,31 @@ export function OrderManager({ orders: initialRows }: { orders: OrderRow[] }) {
       o.customerPhone.includes(search) ||
       o.orderNumber.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "ALL" || o.orderStatus === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesDate = !dateFilter || o.createdAt.slice(0, 10) === dateFilter;
+    return matchesSearch && matchesStatus && matchesDate;
   });
 
-  async function handleStatus(id: string, status: OrderStatus) {
-    setLoadingId(id);
-    setRows((prev) => prev.map((o) => (o.id === id ? { ...o, orderStatus: status } : o)));
+  const exportHref = `/admin/orders/export?${new URLSearchParams({
+    ...(statusFilter !== "ALL" ? { status: statusFilter } : {}),
+    ...(dateFilter ? { date: dateFilter } : {}),
+  }).toString()}`;
 
-    await updateOrderStatusAction(id, status);
-    setLoadingId(null);
+  async function handleStatus(id: string, status: OrderStatus) {
+    if (status === "CANCELLED" && !confirm("Cancel this order? The guest will not be notified automatically.")) return;
+    const previous = rows.find((o) => o.id === id)?.orderStatus;
+    setLoadingId(id);
+    setMessage(null);
+    setRows((prev) => prev.map((o) => (o.id === id ? { ...o, orderStatus: status } : o)));
+    try {
+      const res = await updateOrderStatusAction(id, status);
+      if (!res.ok) throw new Error(res.error ?? "Failed to update order.");
+      setMessage({ kind: "success", text: `Order updated to ${status.toLowerCase()}.` });
+    } catch (err) {
+      if (previous) setRows((prev) => prev.map((o) => (o.id === id ? { ...o, orderStatus: previous } : o)));
+      setMessage({ kind: "error", text: err instanceof Error ? err.message : "Failed to update order." });
+    } finally {
+      setLoadingId(null);
+    }
   }
 
   return (
@@ -61,6 +85,8 @@ export function OrderManager({ orders: initialRows }: { orders: OrderRow[] }) {
           {["ALL", "PENDING", "PREPARING", "READY", "COMPLETED"].map((st) => (
             <button
               key={st}
+              type="button"
+              aria-pressed={statusFilter === st}
               onClick={() => setStatusFilter(st)}
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
                 statusFilter === st
@@ -73,17 +99,47 @@ export function OrderManager({ orders: initialRows }: { orders: OrderRow[] }) {
           ))}
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="order-date">Filter by date</label>
+          <input
+            id="order-date"
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="h-9 rounded-full border border-border bg-card px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          />
+          {canManage && (
+            <a
+              href={exportHref}
+              className="inline-flex h-9 items-center rounded-full border border-border bg-card px-4 text-xs font-semibold hover:bg-muted"
+            >
+              Export CSV
+            </a>
+          )}
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search orders..."
+            aria-label="Search orders"
+            placeholder="Name, phone or order number"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-60 rounded-full border border-border bg-card pl-9 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            className="h-9 w-72 max-w-full rounded-full border border-border bg-card pl-9 pr-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
         </div>
+        </div>
       </div>
+
+      {message && (
+        <p
+          role={message.kind === "error" ? "alert" : "status"}
+          className={`rounded-lg px-3 py-2 text-xs font-medium ${
+            message.kind === "error" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"
+          }`}
+        >
+          {message.text}
+        </p>
+      )}
 
       {/* Orders Grid / List */}
       {filtered.length === 0 ? (
@@ -151,44 +207,50 @@ export function OrderManager({ orders: initialRows }: { orders: OrderRow[] }) {
               </div>
 
               {/* Status Action Buttons */}
+              {canManage && (
               <div className="border-t border-border pt-3 flex gap-2">
                 {order.orderStatus === "PENDING" && (
                   <button
+                    type="button"
                     disabled={loadingId === order.id}
                     onClick={() => handleStatus(order.id, "PREPARING")}
-                    className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                    className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     Start Preparing
                   </button>
                 )}
                 {order.orderStatus === "PREPARING" && (
                   <button
+                    type="button"
                     disabled={loadingId === order.id}
                     onClick={() => handleStatus(order.id, "READY")}
-                    className="flex-1 rounded-lg bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+                    className="flex-1 rounded-lg bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
                   >
                     Mark Ready
                   </button>
                 )}
                 {order.orderStatus === "READY" && (
                   <button
+                    type="button"
                     disabled={loadingId === order.id}
                     onClick={() => handleStatus(order.id, "COMPLETED")}
-                    className="flex-1 rounded-lg bg-success py-2 text-xs font-semibold text-white hover:bg-success/90"
+                    className="flex-1 rounded-lg bg-success py-2 text-xs font-semibold text-white hover:bg-success/90 disabled:opacity-50"
                   >
                     Hand to Guest
                   </button>
                 )}
                 {order.orderStatus !== "CANCELLED" && order.orderStatus !== "COMPLETED" && (
                   <button
+                    type="button"
                     disabled={loadingId === order.id}
                     onClick={() => handleStatus(order.id, "CANCELLED")}
-                    className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-destructive hover:text-white"
+                    className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-destructive hover:text-white disabled:opacity-50"
                   >
                     Cancel
                   </button>
                 )}
               </div>
+              )}
             </div>
           ))}
         </div>

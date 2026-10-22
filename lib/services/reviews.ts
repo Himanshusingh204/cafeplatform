@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db/prisma";
 import { logAction } from "@/lib/services/audit";
+import { resolveTenant } from "@/lib/db/tenant";
 
 export interface CreateReviewInput {
   customerName: string;
@@ -12,11 +13,12 @@ export interface CreateReviewInput {
   dishSlug?: string;
 }
 
-export async function createReview(input: CreateReviewInput) {
+export async function createReview(tenantId: string, input: CreateReviewInput) {
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
 
   const review = await db.review.create({
     data: {
+      tenantId,
       customerName: input.customerName.trim(),
       rating,
       title: input.title.trim(),
@@ -30,9 +32,9 @@ export async function createReview(input: CreateReviewInput) {
   return review;
 }
 
-async function fetchApprovedReviews(dishSlug?: string) {
+async function fetchApprovedReviews(tenantId: string, dishSlug?: string) {
   try {
-    const where: Record<string, unknown> = { isApproved: true };
+    const where: Record<string, unknown> = { tenantId, isApproved: true };
     if (dishSlug) {
       where.dishSlug = dishSlug;
     }
@@ -54,11 +56,11 @@ export const getApprovedReviewsCached = unstable_cache(
   { tags: ["reviews"], revalidate: 300 }
 );
 
-export async function getApprovedReviews(dishSlug?: string) {
-  return getApprovedReviewsCached(dishSlug);
+export async function getApprovedReviews(dishSlug?: string, tenantId?: string) {
+  return getApprovedReviewsCached(tenantId ?? (await resolveTenant()).id, dishSlug);
 }
 
-export async function listReviewsAdmin(options?: {
+export async function listReviewsAdmin(tenantId: string, options?: {
   isApproved?: boolean;
   page?: number;
   pageSize?: number;
@@ -68,7 +70,7 @@ export async function listReviewsAdmin(options?: {
     const pageSize = Math.max(1, Math.min(100, options?.pageSize ?? 30));
     const skip = (page - 1) * pageSize;
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { tenantId };
     if (options?.isApproved !== undefined) {
       where.isApproved = options.isApproved;
     }
@@ -92,9 +94,13 @@ export async function listReviewsAdmin(options?: {
 
 export async function moderateReview(
   id: string,
+  tenantId: string,
   data: { isApproved?: boolean; isFeatured?: boolean },
   actorId?: string | null
 ) {
+  const owned = await db.review.findFirst({ where: { id, tenantId }, select: { id: true } });
+  if (!owned) throw new Error("NOT_FOUND");
+
   const updated = await db.review.update({
     where: { id },
     data,
@@ -111,7 +117,10 @@ export async function moderateReview(
   return updated;
 }
 
-export async function deleteReview(id: string, actorId?: string | null) {
+export async function deleteReview(id: string, tenantId: string, actorId?: string | null) {
+  const owned = await db.review.findFirst({ where: { id, tenantId }, select: { id: true } });
+  if (!owned) throw new Error("NOT_FOUND");
+
   const deleted = await db.review.delete({
     where: { id },
   });
@@ -127,13 +136,13 @@ export async function deleteReview(id: string, actorId?: string | null) {
   return deleted;
 }
 
-export async function getReviewStats() {
+export async function getReviewStats(tenantId: string) {
   try {
     const [totalApproved, pendingModeration, avgRatingAgg] = await Promise.all([
-      db.review.count({ where: { isApproved: true } }),
-      db.review.count({ where: { isApproved: false } }),
+      db.review.count({ where: { tenantId, isApproved: true } }),
+      db.review.count({ where: { tenantId, isApproved: false } }),
       db.review.aggregate({
-        where: { isApproved: true },
+        where: { tenantId, isApproved: true },
         _avg: { rating: true },
       }),
     ]);

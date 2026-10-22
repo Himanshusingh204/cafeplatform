@@ -1,27 +1,40 @@
 import { requirePermission } from "@/lib/auth/guards";
-import { permissions } from "@/config/roles";
+import { hasPermission, permissions } from "@/config/roles";
 import { db } from "@/lib/db/prisma";
 import { KDSBoard, KDSTicket } from "@/components/admin/kds-board";
 
 export const dynamic = "force-dynamic";
 
 export default async function KDSPage() {
-  await requirePermission(permissions.VIEW_MENU);
+  const admin = await requirePermission(permissions.VIEW_MENU);
 
-  const initialRawOrders = await db.order.findMany({
-    where: {
-      orderStatus: {
-        in: ["PENDING", "CONFIRMED", "PREPARING", "READY", "COMPLETED"],
+  // Active queue only: COMPLETED/CANCELLED must never occupy the active window,
+  // especially during a busy service where newest-first would hide live tickets.
+  const [activeRawOrders, recentCompletedRawOrders] = await Promise.all([
+    db.order.findMany({
+      where: {
+        orderStatus: {
+          in: ["PENDING", "CONFIRMED", "PREPARING", "READY"],
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 40,
-    include: {
-      items: true,
-    },
-  });
+      // FIFO: oldest active ticket first so the queue cannot be starved.
+      orderBy: { createdAt: "asc" },
+      take: 80,
+      include: {
+        items: true,
+      },
+    }),
+    db.order.findMany({
+      where: { orderStatus: "COMPLETED" },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: {
+        items: true,
+      },
+    }),
+  ]);
 
-  const initialOrders: KDSTicket[] = initialRawOrders.map((o) => ({
+  const initialOrders: KDSTicket[] = [...activeRawOrders, ...recentCompletedRawOrders].map((o) => ({
     id: o.id,
     orderNumber: o.orderNumber,
     customerName: o.customerName,
@@ -40,7 +53,7 @@ export default async function KDSPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
-      <KDSBoard initialOrders={initialOrders} />
+      <KDSBoard initialOrders={initialOrders} canManage={hasPermission(admin.role, permissions.MANAGE_ORDERS)} />
     </div>
   );
 }

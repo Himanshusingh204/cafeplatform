@@ -1,5 +1,6 @@
 import { db } from "@/lib/db/prisma";
 import { getSession } from "@/lib/auth/session";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
 import { sse } from "@/config/limits";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function GET() {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  const tenantId = await getAdminTenantId(admin);
   const encoder = new TextEncoder();
 
   let cleanup: (() => void) | null = null;
@@ -32,6 +34,7 @@ export async function GET() {
         try {
           const newMessages = await db.contactMessage.count({
             where: {
+              tenantId,
               status: "NEW",
               createdAt: { gt: new Date(lastCheck) },
             },

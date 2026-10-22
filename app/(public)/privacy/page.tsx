@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { PageHeader } from "@/components/layout/page-header";
 import { getSettings } from "@/lib/services/settings";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Privacy Policy",
-  description: "How we collect, use and protect your personal information.",
-  alternates: { canonical: "/privacy" },
-};
+  description:
+    "How we collect, use and protect your personal information.",
+  path: "/privacy",
+});
 
 export default async function PrivacyPage() {
   const settings = await getSettings();

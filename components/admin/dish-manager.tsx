@@ -6,7 +6,7 @@ import Image from "next/image";
 import { Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, StatusMessage, controlClass, mapServerError, type FieldErrors } from "@/components/admin/form-field";
 import { Textarea } from "@/components/ui/textarea";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -49,71 +49,134 @@ export interface AdminCategoryOption {
 export function DishManager({
   dishes,
   categories,
+  canCreate = true,
+  canEdit = true,
   canDelete,
 }: {
   dishes: AdminDishRow[];
   categories: AdminCategoryOption[];
+  canCreate?: boolean;
+  canEdit?: boolean;
   canDelete: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = React.useState<AdminDishRow | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [deleting, setDeleting] = React.useState<AdminDishRow | null>(null);
-  const [pending, setPending] = React.useState(false);
+  const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({});
+  // Optimistic overrides for the quick toggles, rolled back on failure.
+  const [overrides, setOverrides] = React.useState<Record<string, { isAvailable?: boolean; isFeatured?: boolean }>>({});
 
   const modalOpen = creating || editing !== null;
 
-  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+  function closeModal() {
+    setCreating(false);
+    setEditing(null);
+    setFieldErrors({});
+    setError(null);
+  }
+
+  function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
 
     const data = new FormData(event.currentTarget);
-    setPending(true);
+    const errors: FieldErrors = {};
+    const name = String(data.get("name") ?? "").trim();
+    const price = Number(data.get("price"));
+    if (name.length < 2) errors.name = "Enter a dish name of at least 2 characters.";
+    if (!data.get("categoryId")) errors.categoryId = "Please choose a category.";
+    if (!(price >= 1)) errors.price = "Enter a price of at least 1.";
+    if (String(data.get("description") ?? "").trim().length < 10) {
+      errors.description = "Describe the dish in at least 10 characters.";
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError("Please fix the highlighted fields.");
+      return;
+    }
     setError(null);
 
-    const result = await saveDishAction({
-      ...(editing ? { id: editing.id } : {}),
-      name: data.get("name"),
-      categoryId: data.get("categoryId"),
-      shortDescription: data.get("shortDescription"),
-      description: data.get("description"),
-      price: data.get("price"),
-      compareAtPrice: data.get("compareAtPrice"),
-      image: data.get("image"),
-      isFeatured: data.get("isFeatured") === "on",
-      isAvailable: data.get("isAvailable") === "on",
-      isVegetarian: data.get("isVegetarian") === "on",
-      isVegan: data.get("isVegan") === "on",
-      isSpicy: data.get("isSpicy") === "on",
-      containsNuts: data.get("containsNuts") === "on",
-      preparationTime: data.get("preparationTime"),
-      calories: data.get("calories"),
-      sortOrder: data.get("sortOrder"),
+    startTransition(async () => {
+      const result = await saveDishAction({
+        ...(editing ? { id: editing.id } : {}),
+        name: data.get("name"),
+        categoryId: data.get("categoryId"),
+        shortDescription: data.get("shortDescription"),
+        description: data.get("description"),
+        price: data.get("price"),
+        compareAtPrice: data.get("compareAtPrice"),
+        image: data.get("image"),
+        isFeatured: data.get("isFeatured") === "on",
+        isAvailable: data.get("isAvailable") === "on",
+        isVegetarian: data.get("isVegetarian") === "on",
+        isVegan: data.get("isVegan") === "on",
+        isSpicy: data.get("isSpicy") === "on",
+        containsNuts: data.get("containsNuts") === "on",
+        preparationTime: data.get("preparationTime"),
+        calories: data.get("calories"),
+        sortOrder: data.get("sortOrder"),
+      });
+
+      if (!result.ok) {
+        const message = result.error ?? "Could not save the dish.";
+        setError(message);
+        setFieldErrors(
+          mapServerError(message, [
+            [/name is already used|dish name|name/i, "name"],
+            [/category/i, "categoryId"],
+            [/compare/i, "compareAtPrice"],
+            [/price/i, "price"],
+            [/description/i, "description"],
+          ])
+        );
+        return;
+      }
+
+      setNotice(editing ? "Dish saved." : "Dish created.");
+      closeModal();
+      router.refresh();
     });
-
-    setPending(false);
-    if (!result.ok) {
-      setError(result.error ?? "Could not save the dish.");
-      return;
-    }
-
-    setCreating(false);
-    setEditing(null);
-    router.refresh();
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!deleting || pending) return;
-    setPending(true);
-    const result = await deleteDishAction(deleting.id);
-    setPending(false);
-    if (!result.ok) {
-      setError(result.error ?? "Could not delete the dish.");
-      return;
-    }
-    setDeleting(null);
-    router.refresh();
+    const target = deleting;
+    startTransition(async () => {
+      const result = await deleteDishAction(target.id);
+      if (!result.ok) {
+        setError(result.error ?? "Could not delete the dish.");
+        setDeleting(null);
+        return;
+      }
+      setNotice(`${target.name} deleted.`);
+      setDeleting(null);
+      router.refresh();
+    });
+  }
+
+  function handleToggle(dish: AdminDishRow, key: "isAvailable" | "isFeatured") {
+    const next = !(overrides[dish.id]?.[key] ?? dish[key]);
+    const previous = overrides[dish.id];
+    setError(null);
+    setNotice(null);
+    setOverrides((o) => ({ ...o, [dish.id]: { ...o[dish.id], [key]: next } }));
+    startTransition(async () => {
+      const result =
+        key === "isAvailable"
+          ? await toggleDishAvailabilityAction(dish.id, next)
+          : await toggleDishFeaturedAction(dish.id, next);
+      if (!result.ok) {
+        setOverrides((o) => ({ ...o, [dish.id]: previous ?? {} }));
+        setError(result.error ?? "Could not update the dish.");
+        return;
+      }
+      setNotice("Dish updated.");
+      router.refresh();
+    });
   }
 
   return (
@@ -125,29 +188,30 @@ export function DishManager({
             {dishes.length} {dishes.length === 1 ? "dish" : "dishes"} on the menu.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setError(null);
-            setEditing(null);
-            setCreating(true);
-          }}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          New dish
-        </Button>
+        {canCreate ? (
+          <Button
+            onClick={() => {
+              setError(null);
+              setNotice(null);
+              setEditing(null);
+              setCreating(true);
+            }}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New dish
+          </Button>
+        ) : null}
       </div>
 
-      {error && !modalOpen ? (
-        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {!modalOpen ? <StatusMessage ok={notice} error={error} /> : null}
 
       {dishes.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
-          <p className="heading-display text-xl">No dishes found</p>
+          <p className="heading-display text-xl">No dishes yet</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Adjust the filters above or create your first dish.
+            {canCreate
+              ? "Select New dish above to add your first dish. If you just applied filters, clear them to see everything."
+              : "No dishes match. Ask an editor or admin to add the first dish."}
           </p>
         </div>
       ) : (
@@ -163,196 +227,201 @@ export function DishManager({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {dishes.map((dish) => (
-                <tr key={dish.id} className="transition-colors hover:bg-muted/40">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
-                        <Image
-                          src={dish.image ?? "/images/placeholders/dish-placeholder.jpg"}
-                          alt=""
-                          fill
-                          sizes="40px"
-                          className="object-cover"
-                        />
+              {dishes.map((row) => {
+                const dish = { ...row, ...overrides[row.id] };
+                return (
+                  <tr key={dish.id} className="transition-colors hover:bg-muted/40">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
+                          <Image
+                            src={dish.image ?? "/images/placeholders/dish-placeholder.jpg"}
+                            alt=""
+                            fill
+                            sizes="40px"
+                            className="object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-1.5 font-medium">
+                            {dish.name}
+                            {dish.isFeatured ? (
+                              <Star className="h-3.5 w-3.5 fill-primary text-primary" aria-label="Featured" />
+                            ) : null}
+                          </p>
+                          <p className="max-w-[280px] truncate text-xs text-muted-foreground">
+                            {dish.shortDescription}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-1.5 font-medium">
-                          {dish.name}
-                          {dish.isFeatured ? (
-                            <Star className="h-3.5 w-3.5 fill-primary text-primary" aria-label="Featured" />
-                          ) : null}
-                        </p>
-                        <p className="max-w-[280px] truncate text-xs text-muted-foreground">
-                          {dish.shortDescription}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{dish.categoryName}</td>
-                  <td className="px-5 py-3 whitespace-nowrap">{formatPrice(dish.price)}</td>
-                  <td className="px-5 py-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        toggleDishAvailabilityAction(dish.id, !dish.isAvailable)
-                          .then(() => router.refresh())
-                          .catch(() => setError("Could not update availability."))
-                      }
-                      aria-pressed={dish.isAvailable}
-                      className="cursor-pointer"
-                      title="Toggle availability"
-                    >
-                      <Badge variant={dish.isAvailable ? "success" : "secondary"}>
-                        {dish.isAvailable ? "Available" : "Hidden"}
-                      </Badge>
-                    </button>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center justify-end gap-1">
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">{dish.categoryName}</td>
+                    <td className="px-5 py-3 whitespace-nowrap">{formatPrice(dish.price)}</td>
+                    <td className="px-5 py-3">
                       <button
                         type="button"
-                        onClick={() =>
-                          toggleDishFeaturedAction(dish.id, !dish.isFeatured)
-                            .then(() => router.refresh())
-                            .catch(() => setError("Could not update featured status."))
-                        }
-                        aria-pressed={dish.isFeatured}
-                        title={dish.isFeatured ? "Remove from featured" : "Mark as featured"}
-                        className={cn(
-                          "rounded-lg p-2 transition-colors hover:bg-muted",
-                          dish.isFeatured ? "text-primary" : "text-muted-foreground"
-                        )}
+                        disabled={!canEdit || pending}
+                        onClick={() => handleToggle(row, "isAvailable")}
+                        aria-pressed={dish.isAvailable}
+                        className="cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                        title={canEdit ? "Toggle availability" : "You do not have permission to edit dishes"}
                       >
-                        <Star className={cn("h-4 w-4", dish.isFeatured && "fill-current")} />
-                        <span className="sr-only">Toggle featured</span>
+                        <Badge variant={dish.isAvailable ? "success" : "secondary"}>
+                          {dish.isAvailable ? "Available" : "Hidden"}
+                        </Badge>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setError(null);
-                          setCreating(false);
-                          setEditing(dish);
-                        }}
-                        title="Edit dish"
-                        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Edit {dish.name}</span>
-                      </button>
-                      {canDelete ? (
-                        <button
-                          type="button"
-                          onClick={() => setDeleting(dish)}
-                          title="Delete dish"
-                          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          <span className="sr-only">Delete {dish.name}</span>
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        {canEdit ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={pending}
+                              onClick={() => handleToggle(row, "isFeatured")}
+                              aria-pressed={dish.isFeatured}
+                              title={dish.isFeatured ? "Remove from featured" : "Mark as featured"}
+                              className={cn(
+                                "rounded-lg p-2 transition-colors hover:bg-muted disabled:opacity-60",
+                                dish.isFeatured ? "text-primary" : "text-muted-foreground"
+                              )}
+                            >
+                              <Star className={cn("h-4 w-4", dish.isFeatured && "fill-current")} />
+                              <span className="sr-only">Toggle featured for {dish.name}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setError(null);
+                                setNotice(null);
+                                setCreating(false);
+                                setEditing(row);
+                              }}
+                              title="Edit dish"
+                              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              <span className="sr-only">Edit {dish.name}</span>
+                            </button>
+                          </>
+                        ) : null}
+                        {canDelete ? (
+                          <button
+                            type="button"
+                            onClick={() => setDeleting(row)}
+                            title="Delete dish"
+                            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span className="sr-only">Delete {dish.name}</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => {
-          setCreating(false);
-          setEditing(null);
-        }}
-        title={editing ? `Edit ${editing.name}` : "New dish"}
-      >
-        <form key={editing?.id ?? "new"} onSubmit={handleSave} className="space-y-5">
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Edit ${editing.name}` : "New dish"}>
+        <form key={editing?.id ?? "new"} onSubmit={handleSave} noValidate className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="dish-name">Dish name *</Label>
-              <Input id="dish-name" name="name" required minLength={2} maxLength={120} defaultValue={editing?.name ?? ""} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dish-category">Category *</Label>
-              <select
-                id="dish-category"
-                name="categoryId"
-                required
-                defaultValue={editing?.categoryId ?? ""}
-                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="" disabled>
-                  Choose a category…
-                </option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+            <Field id="dish-name" label="Dish name" required error={fieldErrors.name}>
+              {(p) => (
+                <Input {...p} name="name" className="bg-background" maxLength={120} defaultValue={editing?.name ?? ""} />
+              )}
+            </Field>
+            <Field id="dish-category" label="Category" required error={fieldErrors.categoryId}>
+              {(p) => (
+                <select {...p} name="categoryId" defaultValue={editing?.categoryId ?? ""} className={cn(controlClass, "h-11")}>
+                  <option value="" disabled>
+                    Choose a category
                   </option>
-                ))}
-              </select>
-            </div>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="dish-price">Price (₹) *</Label>
+            <Field id="dish-price" label="Price (INR)" required error={fieldErrors.price}>
+              {(p) => (
+                <Input
+                  {...p}
+                  name="price"
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  max="99999"
+                  className="bg-background"
+                  defaultValue={editing ? String(editing.price) : ""}
+                />
+              )}
+            </Field>
+            <Field id="dish-compare" label="Compare at (INR)" error={fieldErrors.compareAtPrice}>
+              {(p) => (
+                <Input
+                  {...p}
+                  name="compareAtPrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="99999"
+                  className="bg-background"
+                  defaultValue={editing?.compareAtPrice != null ? String(editing.compareAtPrice) : ""}
+                />
+              )}
+            </Field>
+            <Field id="dish-sort" label="Sort order" error={fieldErrors.sortOrder}>
+              {(p) => (
+                <Input
+                  {...p}
+                  name="sortOrder"
+                  type="number"
+                  min="0"
+                  max="9999"
+                  className="bg-background"
+                  defaultValue={editing ? String(editing.sortOrder) : "0"}
+                />
+              )}
+            </Field>
+          </div>
+
+          <Field id="dish-short" label="Short description" error={fieldErrors.shortDescription}>
+            {(p) => (
               <Input
-                id="dish-price"
-                name="price"
-                type="number"
-                step="0.01"
-                min="1"
-                max="99999"
-                required
-                defaultValue={editing ? String(editing.price) : ""}
+                {...p}
+                name="shortDescription"
+                maxLength={200}
+                className="bg-background"
+                placeholder="One line shown on the menu"
+                defaultValue={editing?.shortDescription ?? ""}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dish-compare">Compare at (₹)</Label>
-              <Input
-                id="dish-compare"
-                name="compareAtPrice"
-                type="number"
-                step="0.01"
-                min="0"
-                max="99999"
-                defaultValue={editing?.compareAtPrice != null ? String(editing.compareAtPrice) : ""}
+            )}
+          </Field>
+
+          <Field id="dish-description" label="Full description" required error={fieldErrors.description}>
+            {(p) => (
+              <Textarea
+                {...p}
+                name="description"
+                maxLength={2000}
+                rows={4}
+                className="bg-background"
+                defaultValue={editing?.description ?? ""}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dish-sort">Sort order</Label>
-              <Input id="dish-sort" name="sortOrder" type="number" min="0" max="9999" defaultValue={editing ? String(editing.sortOrder) : "0"} />
-            </div>
-          </div>
+            )}
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="dish-short">Short description</Label>
-            <Input
-              id="dish-short"
-              name="shortDescription"
-              maxLength={200}
-              placeholder="One line shown on the menu"
-              defaultValue={editing?.shortDescription ?? ""}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="dish-description">Full description *</Label>
-            <Textarea
-              id="dish-description"
-              name="description"
-              required
-              minLength={10}
-              maxLength={2000}
-              rows={4}
-              defaultValue={editing?.description ?? ""}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="font-medium">Dish Photography</Label>
+          <div className="space-y-1.5">
+            <span className="block text-sm font-medium">Dish photography</span>
             <ImageUploader
               name="image"
               defaultValue={editing?.image ?? ""}
@@ -374,14 +443,16 @@ export function DishManager({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="dish-prep">Prep time (min)</Label>
-              <Input id="dish-prep" name="preparationTime" type="number" min="1" max="480" defaultValue={editing?.preparationTime ?? ""} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dish-calories">Calories</Label>
-              <Input id="dish-calories" name="calories" type="number" min="1" max="5000" defaultValue={editing?.calories ?? ""} />
-            </div>
+            <Field id="dish-prep" label="Prep time (min)" error={fieldErrors.preparationTime}>
+              {(p) => (
+                <Input {...p} name="preparationTime" type="number" min="1" max="480" className="bg-background" defaultValue={editing?.preparationTime ?? ""} />
+              )}
+            </Field>
+            <Field id="dish-calories" label="Calories" error={fieldErrors.calories}>
+              {(p) => (
+                <Input {...p} name="calories" type="number" min="1" max="5000" className="bg-background" defaultValue={editing?.calories ?? ""} />
+              )}
+            </Field>
           </div>
 
           <fieldset className="rounded-lg border border-border p-4">
@@ -429,25 +500,14 @@ export function DishManager({
             </label>
           </div>
 
-          {error ? (
-            <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
+          <StatusMessage error={error} />
 
           <div className="sticky bottom-0 -mx-6 mt-6 flex justify-end gap-3 border-t border-border bg-card px-6 py-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setCreating(false);
-                setEditing(null);
-              }}
-            >
+            <Button type="button" variant="outline" onClick={closeModal}>
               Cancel
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : editing ? "Save changes" : "Create dish"}
+              {pending ? "Saving..." : editing ? "Save changes" : "Create dish"}
             </Button>
           </div>
         </form>
@@ -463,7 +523,7 @@ export function DishManager({
             Cancel
           </Button>
           <Button variant="destructive" onClick={handleDelete} disabled={pending}>
-            {pending ? "Deleting…" : "Delete dish"}
+            {pending ? "Deleting..." : "Delete dish"}
           </Button>
         </div>
       </Modal>

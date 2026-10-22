@@ -11,14 +11,16 @@ import {
   normalizeSettings,
   updateSettings,
 } from "@/lib/services/settings";
-import { makeAdmin, truncateTables, uniqueSuffix } from "../helpers/db";
+import { makeAdmin, testTenantId, truncateTables, uniqueSuffix } from "../helpers/db";
 
 let testAdminId: string;
+let tenantId: string;
 
 beforeAll(async () => {
   await truncateTables("ActivityLog", "Setting", "Admin");
   const admin = await makeAdmin();
   testAdminId = admin.id;
+  tenantId = await testTenantId();
 });
 
 afterAll(async () => {
@@ -57,7 +59,7 @@ describe("normalizeSettings", () => {
 describe("settings service", () => {
   it("persists and retrieves settings", async () => {
     const suffix = uniqueSuffix();
-    await updateSettings({
+    await updateSettings(tenantId, {
       cafeName: `Test Cafe ${suffix}`,
       tagline: "Testing settings",
       phone: "+91 99999 00000",
@@ -71,7 +73,7 @@ describe("settings service", () => {
       reservationLink: "",
     });
 
-    const fresh = await getSettingsFresh();
+    const fresh = await getSettingsFresh(tenantId);
     expect(fresh.cafeName).toBe(`Test Cafe ${suffix}`);
     expect(fresh.phone).toBe("+91 99999 00000");
     expect(fresh.email).toBe(`test-${suffix}@example.com`);
@@ -80,6 +82,7 @@ describe("settings service", () => {
   it("creates audit log entries when updating settings", async () => {
     const suffix = uniqueSuffix();
     await updateSettings(
+      tenantId,
       {
         cafeName: `Audit Test ${suffix}`,
         tagline: "",
@@ -108,7 +111,7 @@ describe("settings service", () => {
 
   it("getSettings returns cached result", async () => {
     const suffix = uniqueSuffix();
-    await updateSettings({
+    await updateSettings(tenantId, {
       cafeName: `Cached Cafe ${suffix}`,
       tagline: "",
       phone: "",
@@ -122,7 +125,7 @@ describe("settings service", () => {
       reservationLink: "",
     });
 
-    const settings = await getSettings();
+    const settings = await getSettings(tenantId);
     expect(settings.cafeName).toBe(`Cached Cafe ${suffix}`);
   });
 });

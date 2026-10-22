@@ -35,7 +35,12 @@ export interface KDSTicket {
 
 interface KDSBoardProps {
   initialOrders: KDSTicket[];
+  /** Move tickets and bump items (MANAGE_ORDERS). Read-only when false. */
+  canManage?: boolean;
 }
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 const STATIONS = [
   { id: "ALL", label: "All Stations (Expo)", icon: "📋" },
@@ -45,7 +50,7 @@ const STATIONS = [
   { id: "PASTRY", label: "Mithai & Pastry", icon: "🧁" },
 ] as const;
 
-export function KDSBoard({ initialOrders }: KDSBoardProps) {
+export function KDSBoard({ initialOrders, canManage = true }: KDSBoardProps) {
   const [orders, setOrders] = useState<KDSTicket[]>(initialOrders);
   const [selectedStation, setSelectedStation] = useState<string>("ALL");
   const [isConnected, setIsConnected] = useState(false);
@@ -53,6 +58,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [isPending, startTransition] = useTransition();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Keep now updated every 15 seconds for elapsed time & SLA rendering
   useEffect(() => {
@@ -70,7 +76,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Chit #${order.orderNumber}</title>
+          <title>Chit #${escapeHtml(order.orderNumber)}</title>
           <style>
             @page { margin: 0; }
             body {
@@ -95,23 +101,23 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
           <div class="center">
             <div class="bold" style="font-size: 16px;">SPICE & SAFFRON</div>
             <div>KITCHEN EXPEDITE CHIT</div>
-            <div class="order-no">${order.orderNumber}</div>
-            <div class="mode-badge">${order.diningMode === "DINE_IN" ? `TABLE ${order.tableNumber || "DINE-IN"}` : "TAKEAWAY PICKUP"}</div>
-            <div>Target: <strong>${order.pickupTime}</strong></div>
+            <div class="order-no">${escapeHtml(order.orderNumber)}</div>
+            <div class="mode-badge">${order.diningMode === "DINE_IN" ? `TABLE ${escapeHtml(order.tableNumber || "DINE-IN")}` : "TAKEAWAY PICKUP"}</div>
+            <div>Target: <strong>${escapeHtml(order.pickupTime)}</strong></div>
           </div>
           <div class="divider"></div>
-          <div>Guest: <strong>${order.customerName}</strong></div>
+          <div>Guest: <strong>${escapeHtml(order.customerName)}</strong></div>
           <div class="divider"></div>
           ${order.items
             .map(
               (item) => `
-            <div class="item-line">[ ${item.quantity}x ] ${item.dishName} (${item.station || "HOT_KITCHEN"})</div>
-            ${(item.modifiers || []).map((m) => `<div class="mod-line">• ${m.optionName}</div>`).join("")}
+            <div class="item-line">[ ${escapeHtml(item.quantity)}x ] ${escapeHtml(item.dishName)} (${escapeHtml(item.station || "HOT_KITCHEN")})</div>
+            ${(item.modifiers || []).map((m) => `<div class="mod-line">• ${escapeHtml(m.optionName)}</div>`).join("")}
           `
             )
             .join("")}
           <div class="divider"></div>
-          ${order.specialInstructions ? `<div><strong>NOTE:</strong> ${order.specialInstructions}</div><div class="divider"></div>` : ""}
+          ${order.specialInstructions ? `<div><strong>NOTE:</strong> ${escapeHtml(order.specialInstructions)}</div><div class="divider"></div>` : ""}
           <div class="center" style="font-size: 11px;">*** SEND TO PASS ***</div>
           <script>
             window.onload = function() { window.print(); window.close(); };
@@ -263,17 +269,33 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
   }, [playAlertSound]);
 
   const handleAdvanceStatus = (orderId: string, nextStatus: KDSTicket["orderStatus"]) => {
+    if (!canManage) return;
+    const previous = orders.find((o) => o.id === orderId)?.orderStatus;
+    setActionError(null);
     // Optimistic UI update
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, orderStatus: nextStatus } : o))
     );
 
     startTransition(async () => {
-      await updateOrderStatusAction(orderId, nextStatus as OrderStatus);
+      try {
+        const res = await updateOrderStatusAction(orderId, nextStatus as OrderStatus);
+        if (!res.ok) throw new Error(res.error);
+      } catch (err) {
+        if (previous) {
+          setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, orderStatus: previous } : o)));
+        }
+        setActionError(
+          (err instanceof Error && err.message) || "Could not update the ticket. It was moved back."
+        );
+      }
     });
   };
 
   const handleToggleItemBump = (orderId: string, orderItemId: string, nextCompleted: boolean) => {
+    if (!canManage) return;
+    const snapshot = orders.find((o) => o.id === orderId);
+    setActionError(null);
     // Optimistic item bumping
     setOrders((prev) =>
       prev.map((order) => {
@@ -295,7 +317,15 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
     );
 
     startTransition(async () => {
-      await adminBumpOrderItemAction(orderItemId, nextCompleted);
+      try {
+        const res = await adminBumpOrderItemAction(orderItemId, nextCompleted);
+        if (!res.ok) throw new Error(res.error);
+      } catch (err) {
+        if (snapshot) setOrders((prev) => prev.map((o) => (o.id === orderId ? snapshot : o)));
+        setActionError(
+          (err instanceof Error && err.message) || "Could not bump the item. It was restored."
+        );
+      }
     });
   };
 
@@ -319,7 +349,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
     if (elapsedMinutes >= 12) {
       return {
         level: "BREACH",
-        badgeClass: "bg-rose-500/20 text-rose-400 border border-rose-500/50 animate-pulse font-bold",
+        badgeClass: "bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/50 animate-pulse font-bold",
         cardBorder: "border-rose-500 ring-2 ring-rose-500/30",
         label: `🚨 ${elapsedMinutes}m (SLA Breach)`,
       };
@@ -327,7 +357,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
     if (elapsedMinutes >= 7) {
       return {
         level: "WARNING",
-        badgeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/40 font-semibold",
+        badgeClass: "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 font-semibold",
         cardBorder: "border-amber-500/70",
         label: `⚠️ ${elapsedMinutes}m (Warning)`,
       };
@@ -345,13 +375,14 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
       {/* KDS Header Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-card border border-border">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-bold font-serif text-foreground">Kitchen Display System (KDS)</h1>
             <span
+              role="status"
               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                 isConnected
-                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                  : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30"
               }`}
             >
               <span
@@ -365,9 +396,10 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
+            aria-pressed={soundEnabled}
             onClick={() => setSoundEnabled(!soundEnabled)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
               soundEnabled
@@ -387,8 +419,19 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
         </div>
       </div>
 
+      {!canManage ? (
+        <p role="status" className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">
+          View only. Your role cannot move tickets or bump items.
+        </p>
+      ) : null}
+      {actionError ? (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
+        </p>
+      ) : null}
+
       {/* Station Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-border">
+      <div role="group" aria-label="Filter by station" className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-border">
         {STATIONS.map((station) => {
           const isActive = selectedStation === station.id;
           const stationCount = orders.filter((o) => {
@@ -401,6 +444,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
             <button
               key={station.id}
               type="button"
+              aria-pressed={isActive}
               onClick={() => setSelectedStation(station.id)}
               className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-2 border ${
                 isActive
@@ -429,18 +473,18 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
         {/* Column 1: New Orders */}
         <div className="flex flex-col rounded-2xl bg-card border border-rose-500/30 overflow-hidden shadow-sm">
           <div className="px-4 py-3 bg-rose-500/10 border-b border-rose-500/20 flex items-center justify-between">
-            <span className="font-semibold text-sm text-rose-400 flex items-center gap-2">
+            <span className="font-semibold text-sm text-rose-700 dark:text-rose-300 flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
               Incoming New Orders
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300 text-xs font-bold">
               {newOrders.length}
             </span>
           </div>
 
           <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
             {newOrders.length === 0 ? (
-              <p className="text-center py-12 text-xs text-muted-foreground">No new tickets.</p>
+              <p className="text-center py-12 text-xs text-muted-foreground">No new tickets. Orders from the website, tables and POS appear here the moment they are placed.</p>
             ) : (
               newOrders.map((order) => {
                 const sla = getSlaInfo(order.createdAt);
@@ -455,7 +499,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <span className="text-xs font-mono font-bold text-rose-400 block">{order.orderNumber}</span>
+                        <span className="text-xs font-mono font-bold text-rose-700 dark:text-rose-300 block">{order.orderNumber}</span>
                         <span className="font-semibold text-sm text-foreground">{order.customerName}</span>
                       </div>
                       <span className={`text-[11px] px-2 py-0.5 rounded ${sla.badgeClass}`}>
@@ -467,7 +511,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                       <div className="flex items-center gap-1.5">
                         {order.diningMode === "DINE_IN" ? (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                             🍽️ Table {order.tableNumber || "Dine-In"}
                           </span>
                         ) : (
@@ -476,7 +520,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                           </span>
                         )}
                         {order.tip && Number(order.tip) > 0 && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
                             Tip: ₹{Number(order.tip).toFixed(0)}
                           </span>
                         )}
@@ -506,7 +550,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                           >
                             <div className="flex items-center justify-between text-xs">
                               <span className="font-medium text-foreground flex items-center gap-1.5">
-                                <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-[10px] font-bold">
+                                <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300 flex items-center justify-center text-[10px] font-bold">
                                   {item.quantity}
                                 </span>
                                 <span className={item.isCompleted ? "line-through text-muted-foreground" : ""}>
@@ -533,25 +577,25 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </div>
 
                     {order.specialInstructions && (
-                      <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
+                      <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300">
                         ⚠️ {order.specialInstructions}
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <button
                         type="button"
                         onClick={() => printChit(order)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                        className="px-2.5 py-2 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
                         title="Print Kitchen Expedite Chit (80mm)"
                       >
                         🖨️ Chit
                       </button>
                       <button
                         type="button"
-                        disabled={isPending}
+                        disabled={isPending || !canManage}
                         onClick={() => handleAdvanceStatus(order.id, "PREPARING")}
-                        className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                        className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-1.5"
                       >
                         🔥 Start Cooking
                       </button>
@@ -566,18 +610,18 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
         {/* Column 2: In Preparation (With Line-Item Bumping) */}
         <div className="flex flex-col rounded-2xl bg-card border border-amber-500/30 overflow-hidden shadow-sm">
           <div className="px-4 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">
-            <span className="font-semibold text-sm text-amber-400 flex items-center gap-2">
+            <span className="font-semibold text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
               In Preparation
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-bold">
               {inPrep.length}
             </span>
           </div>
 
           <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
             {inPrep.length === 0 ? (
-              <p className="text-center py-12 text-xs text-muted-foreground">Kitchen is idle.</p>
+              <p className="text-center py-12 text-xs text-muted-foreground">Kitchen is idle. Start a new ticket to see it here.</p>
             ) : (
               inPrep.map((order) => {
                 const sla = getSlaInfo(order.createdAt);
@@ -596,7 +640,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <span className="text-xs font-mono font-bold text-amber-400 block">{order.orderNumber}</span>
+                        <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300 block">{order.orderNumber}</span>
                         <span className="font-semibold text-sm text-foreground">{order.customerName}</span>
                       </div>
                       <span className={`text-[11px] px-2 py-0.5 rounded ${sla.badgeClass}`}>
@@ -608,7 +652,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                       <div className="flex items-center gap-1.5">
                         {order.diningMode === "DINE_IN" ? (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                             🍽️ Table {order.tableNumber || "Dine-In"}
                           </span>
                         ) : (
@@ -617,7 +661,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                           </span>
                         )}
                         {order.tip && Number(order.tip) > 0 && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
                             Tip: ₹{Number(order.tip).toFixed(0)}
                           </span>
                         )}
@@ -630,7 +674,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     {/* Interactive Line-Item Bumping Checklist */}
                     <div className="space-y-1.5 pt-2 border-t border-border">
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground font-semibold px-1">
-                        <span>Line Items (Tap to Bump)</span>
+                        <span>Line Items (tap to bump)</span>
                         <span>
                           {order.items.filter((i) => i.isCompleted).length} / {order.items.length} done
                         </span>
@@ -645,6 +689,8 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                           <button
                             key={item.id}
                             type="button"
+                            disabled={!canManage}
+                            aria-pressed={!!item.isCompleted}
                             onClick={() => handleToggleItemBump(order.id, item.id, !item.isCompleted)}
                             className={`w-full text-left p-2 rounded-lg border transition-all flex flex-col gap-1 ${
                               item.isCompleted
@@ -659,7 +705,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                                 <span
                                   className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold border transition-colors ${
                                     item.isCompleted
-                                      ? "bg-emerald-500 border-emerald-400 text-white"
+                                      ? "bg-success border-success text-background"
                                       : "border-muted-foreground/40 bg-background text-transparent"
                                   }`}
                                 >
@@ -695,31 +741,31 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     </div>
 
                     {allItemsDone && (
-                      <div className="p-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-xs font-semibold text-emerald-400 text-center flex items-center justify-center gap-1.5">
+                      <div className="p-2 rounded bg-emerald-500/15 border border-emerald-500/30 text-xs font-semibold text-emerald-700 dark:text-emerald-300 text-center flex items-center justify-center gap-1.5">
                         <span>✨ All items bumped! Ready to dispatch.</span>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <button
                         type="button"
                         onClick={() => printChit(order)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                        className="px-2.5 py-2 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
                         title="Print Kitchen Expedite Chit (80mm)"
                       >
                         🖨️ Chit
                       </button>
                       <button
                         type="button"
-                        disabled={isPending}
+                        disabled={isPending || !canManage}
                         onClick={() => handleAdvanceStatus(order.id, "READY")}
-                        className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors shadow-sm flex items-center justify-center gap-1.5 ${
+                        className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60 ${
                           allItemsDone
-                            ? "bg-emerald-600 hover:bg-emerald-500 text-white ring-2 ring-emerald-400"
-                            : "bg-amber-600 hover:bg-amber-500 text-white"
+                            ? "bg-success hover:bg-success/90 text-background ring-2 ring-success/50"
+                            : "bg-primary hover:bg-primary/90 text-primary-foreground"
                         }`}
                       >
-                        🔔 Mark Ready for Pass
+                        🔔 Mark ready for pass
                       </button>
                     </div>
                   </div>
@@ -732,18 +778,18 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
         {/* Column 3: Ready for Pickup / Pass */}
         <div className="flex flex-col rounded-2xl bg-card border border-emerald-500/30 overflow-hidden shadow-sm">
           <div className="px-4 py-3 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center justify-between">
-            <span className="font-semibold text-sm text-emerald-400 flex items-center gap-2">
+            <span className="font-semibold text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
               Ready at Pass
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
               {readyOrders.length}
             </span>
           </div>
 
           <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
             {readyOrders.length === 0 ? (
-              <p className="text-center py-12 text-xs text-muted-foreground">No orders awaiting pickup.</p>
+              <p className="text-center py-12 text-xs text-muted-foreground">No orders awaiting pickup. Mark a ticket ready to send it to the pass.</p>
             ) : (
               readyOrders.map((order) => (
                 <div
@@ -752,10 +798,10 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="text-xs font-mono font-bold text-emerald-400 block">{order.orderNumber}</span>
+                      <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 block">{order.orderNumber}</span>
                       <span className="font-semibold text-sm text-foreground">{order.customerName}</span>
                     </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
                       READY
                     </span>
                   </div>
@@ -764,7 +810,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                   <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                     <div className="flex items-center gap-1.5">
                       {order.diningMode === "DINE_IN" ? (
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                           🍽️ Table {order.tableNumber || "Dine-In"}
                         </span>
                       ) : (
@@ -782,7 +828,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     {order.items.map((item) => (
                       <div key={item.id} className="flex items-center justify-between text-xs">
                         <span className="text-foreground font-medium flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px] font-bold">
+                          <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px] font-bold">
                             {item.quantity}
                           </span>
                           {item.dishName}
@@ -794,20 +840,20 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => printChit(order)}
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                      className="px-2.5 py-2 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
                       title="Print Kitchen Expedite Chit (80mm)"
                     >
                       🖨️ Chit
                     </button>
                     <button
                       type="button"
-                      disabled={isPending}
+                      disabled={isPending || !canManage}
                       onClick={() => handleAdvanceStatus(order.id, "COMPLETED")}
-                      className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                      className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-success hover:bg-success/90 text-background transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-1.5"
                     >
                       ✓ Handed Over & Complete
                     </button>
@@ -829,7 +875,7 @@ export function KDSBoard({ initialOrders }: KDSBoardProps) {
 
           <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
             {completedOrders.length === 0 ? (
-              <p className="text-center py-12 text-xs text-muted-foreground">No completed orders yet.</p>
+              <p className="text-center py-12 text-xs text-muted-foreground">No completed orders yet. Handed-over tickets show here.</p>
             ) : (
               completedOrders.map((order) => (
                 <div key={order.id} className="p-3 rounded-xl bg-background border border-border space-y-2 text-xs">

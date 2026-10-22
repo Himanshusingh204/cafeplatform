@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Clock, ChefHat, PackageCheck, MapPin, Phone, ArrowLeft } from "lucide-react";
 import { getOrderById } from "@/lib/services/orders";
+import { resolveTaxRatePercent } from "@/config/pricing";
 import { formatPrice } from "@/lib/utils/format";
 import { OrderLiveTracker } from "@/components/order/order-live-tracker";
 
@@ -12,6 +13,8 @@ interface OrderPageProps {
 
 export const metadata: Metadata = {
   title: "Order Status",
+  // Per-customer order page reached by a private link.
+  robots: { index: false, follow: false },
 };
 
 const STATUS_STEPS = [
@@ -46,6 +49,35 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
   }
 
   const currentStep = getStepIndex(order.orderStatus);
+  const isCancelled = order.orderStatus === "CANCELLED";
+
+  const subtotalAmount = Number(order.subtotal);
+  const discountAmount = Number(order.discount);
+  const taxAmount = Number(order.tax);
+  const taxableBase = subtotalAmount - discountAmount;
+
+  // The order stores the tax amount, not the rate, so recover the rate the
+  // guest was actually charged. Fall back to config when it is not derivable.
+  const storedTaxRatePercent =
+    taxableBase > 0 && taxAmount > 0
+      ? Number(((taxAmount / taxableBase) * 100).toFixed(1))
+      : null;
+  const taxRatePercent = storedTaxRatePercent ?? resolveTaxRatePercent();
+  const taxLabel = taxAmount > 0 ? `GST (${taxRatePercent}%)` : "GST";
+
+  const discountLabel =
+    order.loyaltyPointsUsed > 0
+      ? "Discount"
+      : order.couponCode
+        ? `Coupon Discount (${order.couponCode})`
+        : "Discount";
+
+  const paymentLabel =
+    order.paymentStatus === "PAID"
+      ? "Paid"
+      : order.paymentStatus === "PAY_AT_PICKUP"
+        ? "Pay at pickup"
+        : "Payment pending";
 
   return (
     <div className="container-site max-w-3xl py-12 md:py-16">
@@ -60,7 +92,7 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Takeaway Order Confirmed</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Order received</p>
             <h1 className="heading-display mt-1 text-3xl font-bold text-foreground">
               {order.orderNumber}
             </h1>
@@ -74,7 +106,7 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
               Pickup: {order.pickupTime}
             </span>
             <p className="text-xs text-muted-foreground mt-1.5">
-              Payment: <strong className="text-foreground">{order.paymentStatus === "PAID" ? "Paid Online" : "Pay at Pickup"}</strong>
+              Payment: <strong className="text-foreground">{paymentLabel}</strong>
             </p>
           </div>
         </div>
@@ -87,18 +119,23 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
             Live Order Status
           </h2>
 
-          <div className="grid grid-cols-4 gap-2">
+          {isCancelled ? (
+            <div role="alert" className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              This order was cancelled. Please call the kitchen if you have any questions.
+            </div>
+          ) : null}
+          <ol className={`grid grid-cols-4 gap-2 ${isCancelled ? "opacity-50" : ""}`}>
             {STATUS_STEPS.map((step, idx) => {
               const isPast = idx < currentStep;
               const isCurrent = idx === currentStep;
               const Icon = step.icon;
 
               return (
-                <div key={step.key} className="text-center space-y-2">
+                <li key={step.key} aria-current={isCurrent && !isCancelled ? "step" : undefined} className="text-center space-y-2">
                   <div
                     className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full transition-all ${
                       isCurrent
-                        ? "bg-primary text-primary-foreground ring-4 ring-primary/20 scale-110"
+                        ? "bg-primary text-primary-foreground ring-4 ring-primary/20"
                         : isPast
                         ? "bg-success text-success-foreground"
                         : "bg-muted text-muted-foreground"
@@ -114,15 +151,15 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
                       {step.desc}
                     </p>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ol>
 
           <div className="mt-4 relative flex items-center justify-center">
             <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary transition-all duration-500"
+                className="h-full bg-primary motion-safe:transition-all motion-safe:duration-500"
                 style={{ width: `${((currentStep + 1) / STATUS_STEPS.length) * 100}%` }}
               />
             </div>
@@ -152,16 +189,22 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
               <span>Subtotal</span>
               <span>{formatPrice(Number(order.subtotal))}</span>
             </div>
-            {Number(order.discount) > 0 && (
+            {discountAmount > 0 && (
               <div className="flex justify-between text-success">
-                <span>Coupon Discount ({order.couponCode})</span>
-                <span>- {formatPrice(Number(order.discount))}</span>
+                <span>{discountLabel}</span>
+                <span>- {formatPrice(discountAmount)}</span>
               </div>
             )}
             <div className="flex justify-between text-muted-foreground">
-              <span>GST (5%)</span>
-              <span>{formatPrice(Number(order.tax))}</span>
+              <span>{taxLabel}</span>
+              <span>{formatPrice(taxAmount)}</span>
             </div>
+            {Number(order.tip) > 0 && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Tip</span>
+                <span>{formatPrice(Number(order.tip))}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm font-bold text-foreground border-t border-border pt-2">
               <span>Total</span>
               <span className="text-primary">{formatPrice(Number(order.total))}</span>
@@ -176,7 +219,7 @@ export default async function OrderStatusPage({ params }: OrderPageProps) {
             Pickup Location
           </h4>
           <p className="text-muted-foreground">
-            Spice & Saffron Café · 12 Café Lane, Hauz Khas Village, New Delhi 110016
+            Spice & Saffron Café, 12 Café Lane, Hauz Khas Village, New Delhi 110016
           </p>
           <div className="flex flex-wrap gap-4 pt-1">
             <a

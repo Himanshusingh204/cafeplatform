@@ -6,6 +6,8 @@ import { permissions } from "@/config/roles";
 import { rateLimit } from "@/lib/rate-limit/limiter";
 import { limits } from "@/config/limits";
 import { dishInputSchema } from "@/lib/validation/schemas";
+import { getAdminTenantId } from "@/lib/auth/tenant-context";
+import { PlanLimitError } from "@/lib/plans";
 import {
   createDish,
   updateDish,
@@ -46,10 +48,11 @@ export async function saveDishAction(input: Record<string, unknown>): Promise<Ac
     if (id) {
       await updateDish(id, { ...parsed.data, actorId: admin.id });
     } else {
-      await createDish({ ...parsed.data, actorId: admin.id });
+      await createDish({ ...parsed.data, tenantId: await getAdminTenantId(admin), actorId: admin.id });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
+    if (error instanceof PlanLimitError) return { ok: false, error: error.message };
     if (message === "SLUG_TAKEN") return { ok: false, error: "That name is already used by another dish." };
     if (message === "NOT_FOUND") return { ok: false, error: "This dish no longer exists." };
     return { ok: false, error: "Could not save the dish. Please try again." };

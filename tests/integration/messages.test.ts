@@ -7,10 +7,13 @@ import {
   listMessagesAdmin,
   updateMessageStatus,
 } from "@/lib/services/messages";
-import { truncateTables, uniqueSuffix } from "../helpers/db";
+import { testTenantId, truncateTables, uniqueSuffix } from "../helpers/db";
+
+let tenantId: string;
 
 beforeAll(async () => {
   await truncateTables("ActivityLog", "ContactMessage");
+  tenantId = await testTenantId();
 });
 
 afterAll(async () => {
@@ -20,6 +23,7 @@ afterAll(async () => {
 function messageInput() {
   const suffix = uniqueSuffix();
   return {
+    tenantId,
     name: `Test Sender ${suffix}`,
     email: `sender-${suffix}@test.example`,
     subject: `Enquiry ${suffix}`,
@@ -42,8 +46,8 @@ describe("contact messages", () => {
   it("moves through the status workflow with an audit entry", async () => {
     const created = await createContactMessage(messageInput());
 
-    const read = await updateMessageStatus(created.id, "READ");
-    const replied = await updateMessageStatus(created.id, "REPLIED", null);
+    const read = await updateMessageStatus(created.id, "READ", tenantId);
+    const replied = await updateMessageStatus(created.id, "REPLIED", tenantId, null);
 
     expect(read.status).toBe("READ");
     expect(replied.status).toBe("REPLIED");
@@ -57,30 +61,30 @@ describe("contact messages", () => {
 
   it("throws NOT_FOUND for a missing message id", async () => {
     await expect(
-      updateMessageStatus("00000000-0000-0000-0000-000000000000", "READ")
+      updateMessageStatus("00000000-0000-0000-0000-000000000000", "READ", tenantId)
     ).rejects.toThrow("NOT_FOUND");
   });
 
   it("filters and paginates the admin list", async () => {
     const first = await createContactMessage(messageInput());
     const second = await createContactMessage(messageInput());
-    await updateMessageStatus(second.id, "ARCHIVED");
+    await updateMessageStatus(second.id, "ARCHIVED", tenantId);
 
-    const archived = await listMessagesAdmin({ status: "ARCHIVED" });
+    const archived = await listMessagesAdmin({ tenantId, status: "ARCHIVED" });
     expect(archived.items.map((m) => m.id)).toContain(second.id);
     expect(archived.items.map((m) => m.id)).not.toContain(first.id);
 
-    const search = await listMessagesAdmin({ search: first.name });
+    const search = await listMessagesAdmin({ tenantId, search: first.name });
     expect(search.items.map((m) => m.id)).toContain(first.id);
 
-    const paged = await listMessagesAdmin({ page: 1, pageSize: 1 });
+    const paged = await listMessagesAdmin({ tenantId, page: 1, pageSize: 1 });
     expect(paged.items).toHaveLength(1);
     expect(paged.total).toBeGreaterThanOrEqual(2);
   });
 
   it("counts totals and unread for dashboard stats", async () => {
     await createContactMessage(messageInput());
-    const stats = await getMessageStats();
+    const stats = await getMessageStats(tenantId);
 
     expect(stats.total).toBeGreaterThan(0);
     expect(stats.unread).toBeGreaterThan(0);

@@ -73,7 +73,7 @@ describe("dish CRUD", () => {
     expect(row.deletedAt).not.toBeNull();
     expect(await getDishAdmin(dish.id)).toBeNull();
 
-    const listed = await listDishesAdmin({ search: row.name.split(" ")[0] });
+    const listed = await listDishesAdmin({ tenantId: row.tenantId, search: row.name.split(" ")[0] });
     expect(listed.items.some((d) => d.id === dish.id)).toBe(false);
   });
 

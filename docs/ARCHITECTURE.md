@@ -1031,3 +1031,8 @@ Consequences** — and link back to the relevant section of this document.
 [ADRs](./adr/) · [Security Policy](../SECURITY.md)
 
 © 2026 Himanshu. All Rights Reserved.
+
+
+## Durable outbox (Phase 3)
+
+`OutboxEvent` rows are written inside the business transaction (`lib/outbox/enqueue.ts`) and drained by `processOutbox` (`FOR UPDATE SKIP LOCKED` claim with a 2 min lease, exponential backoff, DEAD after 6 attempts) from `/api/cron/outbox` and a post-response `after()` hook. Handlers (`lib/outbox/handlers.ts`) are independent of `lib/queue/handlers` and must be idempotent (at-least-once).

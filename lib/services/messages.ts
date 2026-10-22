@@ -5,6 +5,7 @@ import { logAction } from "@/lib/services/audit";
 import type { MessageStatus } from "@/lib/generated/prisma/enums";
 
 export async function createContactMessage(input: {
+  tenantId: string;
   name: string;
   email: string;
   phone?: string;
@@ -14,6 +15,7 @@ export async function createContactMessage(input: {
 }) {
   return db.contactMessage.create({
     data: {
+      tenantId: input.tenantId,
       name: input.name,
       email: input.email,
       phone: input.phone || null,
@@ -25,12 +27,14 @@ export async function createContactMessage(input: {
 }
 
 export async function listMessagesAdmin(input: {
+  tenantId: string;
   status?: string;
   search?: string;
   page?: number;
   pageSize?: number;
 }) {
   const where = {
+    tenantId: input.tenantId,
     ...(input.status ? { status: input.status as MessageStatus } : {}),
     ...(input.search
       ? {
@@ -56,8 +60,13 @@ export async function listMessagesAdmin(input: {
   return { total, items };
 }
 
-export async function updateMessageStatus(id: string, status: MessageStatus, actorId?: string | null) {
-  const existing = await db.contactMessage.findUnique({ where: { id } });
+export async function updateMessageStatus(
+  id: string,
+  status: MessageStatus,
+  tenantId: string,
+  actorId?: string | null
+) {
+  const existing = await db.contactMessage.findFirst({ where: { id, tenantId } });
   if (!existing) throw new Error("NOT_FOUND");
 
   const message = await db.contactMessage.update({ where: { id }, data: { status } });
@@ -73,10 +82,10 @@ export async function updateMessageStatus(id: string, status: MessageStatus, act
   return message;
 }
 
-export async function getMessageStats() {
+export async function getMessageStats(tenantId: string) {
   const [total, unread] = await Promise.all([
-    db.contactMessage.count(),
-    db.contactMessage.count({ where: { status: "NEW" } }),
+    db.contactMessage.count({ where: { tenantId } }),
+    db.contactMessage.count({ where: { tenantId, status: "NEW" } }),
   ]);
   return { total, unread };
 }

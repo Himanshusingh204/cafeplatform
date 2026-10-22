@@ -23,10 +23,10 @@ export function MenuHighlights({ categories }: { categories: PublicCategory[] })
           </div>
         </Reveal>
 
-        <ol>
+        <div>
           {highlights.map((category, index) => (
             <Reveal key={category.id} delay={Math.min(index * 0.05, 0.15)}>
-              <li className="border-b border-border">
+              <div className="border-b border-border">
                 <Link
                   href={`/menu#${category.slug}`}
                   className="group grid grid-cols-[2.5rem_1fr_auto] items-baseline gap-x-4 py-6 transition-colors md:grid-cols-[3.5rem_1fr_auto] md:py-7"
@@ -52,10 +52,10 @@ export function MenuHighlights({ categories }: { categories: PublicCategory[] })
                     />
                   </span>
                 </Link>
-              </li>
+              </div>
             </Reveal>
           ))}
-        </ol>
+        </div>
 
         <div className="mt-8 flex items-center justify-between">
           <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">

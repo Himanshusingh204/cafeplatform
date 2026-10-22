@@ -36,7 +36,7 @@ export function FaqAccordion({ faqs }: FaqAccordionProps) {
         <Link href="/contact" className="font-medium text-primary hover:underline">
           Write to us
         </Link>{" "}
-        — we reply within a day.
+        - we reply within a day.
       </p>
     </div>
   );

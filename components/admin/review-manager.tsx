@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Star, Check, Trash2, EyeOff, Sparkles } from "lucide-react";
 import { moderateReviewAction, deleteReviewAction } from "@/app/admin/actions/reviews";
+import { useConfirm } from "@/components/admin/confirm-dialog";
 
 export interface ReviewRow {
   id: string;
@@ -16,7 +17,15 @@ export interface ReviewRow {
   createdAt: string;
 }
 
-export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }) {
+export function ReviewManager({
+  reviews: initialRows,
+  canModerate = true,
+}: {
+  reviews: ReviewRow[];
+  canModerate?: boolean;
+}) {
+  const [error, setError] = React.useState<string | null>(null);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
   const [rows, setRows] = React.useState(initialRows);
   const [filter, setFilter] = React.useState<"ALL" | "PENDING" | "APPROVED">("ALL");
 
@@ -28,22 +37,56 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
 
   async function handleToggleApprove(id: string, current: boolean) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isApproved: !current } : r)));
-    await moderateReviewAction(id, { isApproved: !current });
+    await run(id, () => moderateReviewAction(id, { isApproved: !current }), () =>
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isApproved: current } : r)))
+    );
   }
 
   async function handleToggleFeatured(id: string, current: boolean) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isFeatured: !current } : r)));
-    await moderateReviewAction(id, { isFeatured: !current });
+    await run(id, () => moderateReviewAction(id, { isFeatured: !current }), () =>
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isFeatured: current } : r)))
+    );
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this customer review?")) return;
+    if (!(await confirm({ title: "Delete review", message: "This customer review will be permanently removed." }))) return;
+    const snapshot = rows;
     setRows((prev) => prev.filter((r) => r.id !== id));
-    await deleteReviewAction(id);
+    await run(id, () => deleteReviewAction(id), () => setRows(snapshot));
   }
+
+  async function run(
+    id: string,
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    rollback: () => void
+  ) {
+    setError(null);
+    setBusyId(id);
+    try {
+      const res = await action();
+      if (!res.ok) {
+        rollback();
+        setError(res.error || "That change could not be saved.");
+      }
+    } catch {
+      rollback();
+      setError("That change could not be saved. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const { confirm, dialog } = useConfirm();
 
   return (
     <div className="space-y-4">
+      {dialog}
+      {error && (
+        <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       <div className="flex gap-2">
         {(["ALL", "PENDING", "APPROVED"] as const).map((st) => (
           <button
@@ -62,7 +105,7 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center text-sm text-muted-foreground">
-          No customer reviews matching this view.
+          No reviews match this view. Reviews appear here after customers submit them.
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -107,8 +150,11 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
               </div>
 
               {/* Action Buttons */}
+              {canModerate ? (
               <div className="border-t border-border pt-3 mt-4 flex items-center justify-between gap-2">
                 <button
+                  type="button"
+                  disabled={busyId === rev.id}
                   onClick={() => handleToggleApprove(rev.id, rev.isApproved)}
                   className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                     rev.isApproved
@@ -128,6 +174,8 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
                 </button>
 
                 <button
+                  type="button"
+                  disabled={busyId === rev.id}
                   onClick={() => handleToggleFeatured(rev.id, rev.isFeatured)}
                   className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                     rev.isFeatured
@@ -140,6 +188,8 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
                 </button>
 
                 <button
+                  type="button"
+                  disabled={busyId === rev.id}
                   onClick={() => handleDelete(rev.id)}
                   aria-label="Delete review"
                   className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive hover:text-white"
@@ -147,6 +197,11 @@ export function ReviewManager({ reviews: initialRows }: { reviews: ReviewRow[] }
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
+              ) : (
+                <p className="mt-4 border-t border-border pt-3 text-[11px] text-muted-foreground">
+                  Your role can view reviews but not moderate them.
+                </p>
+              )}
             </div>
           ))}
         </div>

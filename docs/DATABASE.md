@@ -105,8 +105,10 @@ erDiagram
   }
 ```
 
-**Standalone (no `tenantId`, no relation):** `GalleryImage`, `ContactMessage`,
-`Review`, `Setting`, `Coupon`. See [§5](#5-tenant-isolation--the-nullable-tenantid-defect).
+**Closed 2026-10-23 (AUDIT P2-4):** `GalleryImage`, `ContactMessage`, `Review`, `Setting` and `Coupon` now
+carry `tenantId` (NOT NULL, FK `ON DELETE RESTRICT`, indexed), as do `Category` and `Dish`.
+`Tenant.plan` (`FREE`/`STARTER`/`PRO`, default `STARTER`) is the quota tier. See
+[§5](#5-tenant-isolation--the-nullable-tenantid-defect).
 
 ### 1.2 Models by bounded context
 
@@ -511,6 +513,11 @@ SSE connect path (`server/api.ts:218`) and from `resolveTenant`. That work shoul
 be a one-time data migration, not a per-connection side effect.
 
 ### 5.3 Contexts with no `tenantId` at all
+
+> **Resolved 2026-10-23** by migration `20261023090000_tenant_scope_remaining`. The table below is the
+> pre-fix state, kept for the record. Uniqueness is now per tenant (`20261023100000_per_tenant_uniques`):
+> `Category(tenantId, slug)`, `Dish(tenantId, slug)`, `Coupon(tenantId, code)`, `Setting(tenantId, key)`.
+> `Admin.email`, `CustomerUser.email` and `Order.orderNumber` remain global on purpose.
 
 These tables have **no tenant column** and therefore cannot be isolated by row:
 

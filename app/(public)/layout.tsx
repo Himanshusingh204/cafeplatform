@@ -13,9 +13,9 @@ export default async function PublicLayout({
 
   return (
     <CartProvider>
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-[100dvh] flex-col">
         <SiteHeader siteName={settings.cafeName} phone={settings.phone} />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">{children}</main>
         <SiteFooter settings={settings} />
       </div>
       <CartDrawer />

@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { Clock, MapPin, Phone, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReservationForm } from "@/components/reservations/reservation-form";
 import { ReservationLookup } from "@/components/reservations/reservation-lookup";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Reserve a Table",
-  description: "Book your dining table at Spice & Saffron in Hauz Khas Village, New Delhi. Authentic Indian culinary feasts cooked with patience.",
-  alternates: { canonical: "/reservations" },
-};
+  description:
+    "Book your dining table at Spice & Saffron in Hauz Khas Village, New Delhi. Authentic Indian culinary feasts cooked with patience.",
+  path: "/reservations",
+});
 
 export default function ReservationsPage() {
   return (
@@ -42,7 +44,7 @@ export default function ReservationsPage() {
                 </li>
                 <li className="flex gap-2">
                   <span className="font-bold text-foreground">·</span>
-                  <span>Weekend dinner seatings (Friday–Sunday) fill quickly; advance booking is highly recommended.</span>
+                  <span>Weekend dinner seatings (Friday-Sunday) fill quickly; advance booking is highly recommended.</span>
                 </li>
               </ul>
             </div>
@@ -62,7 +64,7 @@ export default function ReservationsPage() {
                 </a>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Clock className="h-3.5 w-3.5 text-primary" />
-                  Lunch: 12 PM – 3:30 PM · Dinner: 7 PM – 11 PM
+                  Lunch: 12 PM - 3:30 PM · Dinner: 7 PM - 11 PM
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-3.5 w-3.5 text-primary" />

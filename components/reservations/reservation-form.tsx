@@ -23,6 +23,21 @@ const TIME_SLOTS = [
 
 const GUEST_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 10];
 
+const inputClass =
+  "w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive";
+const labelClass = "mb-2 flex items-center gap-2 text-sm font-medium text-foreground";
+
+type FieldKey = "name" | "email" | "phone" | "date";
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="mt-1.5 text-sm text-destructive">
+      {message}
+    </p>
+  );
+}
+
 export function ReservationForm() {
   const [guests, setGuests] = React.useState(2);
   const [date, setDate] = React.useState(() => {
@@ -38,13 +53,37 @@ export function ReservationForm() {
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<FieldKey, string>>>({});
   const [confirmedCode, setConfirmedCode] = React.useState<string | null>(null);
+  const successRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (confirmedCode) successRef.current?.focus();
+  }, [confirmedCode]);
+
+  function validate(): Partial<Record<FieldKey, string>> {
+    const errs: Partial<Record<FieldKey, string>> = {};
+    if (name.trim().length < 2) errs.name = "Enter the name for the booking.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address.";
+    if (phone.replace(/\D/g, "").length < 7) errs.phone = "Enter a phone number we can reach you on.";
+    if (!date) errs.date = "Choose a date.";
+    return errs;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError(null);
-    setLoading(true);
 
+    const errs = validate();
+    setFieldErrors(errs);
+    const first = (["name", "email", "phone", "date"] as FieldKey[]).find((k) => errs[k]);
+    if (first) {
+      document.getElementById(`res-${first}`)?.focus();
+      return;
+    }
+
+    setLoading(true);
     try {
       const result = await submitReservationAction({
         name,
@@ -57,12 +96,12 @@ export function ReservationForm() {
       });
 
       if (!result.ok || !result.data) {
-        setError(result.error ?? "Could not book reservation.");
+        setError(result.error ?? "We could not book that table. Please try again.");
       } else {
         setConfirmedCode(result.data.referenceCode);
       }
     } catch {
-      setError("An unexpected error occurred. Please call the café directly.");
+      setError("Something went wrong on our side. Please try again, or call the cafe.");
     } finally {
       setLoading(false);
     }
@@ -70,43 +109,49 @@ export function ReservationForm() {
 
   if (confirmedCode) {
     return (
-      <div className="rounded-2xl border border-success/30 bg-card p-8 md:p-12 shadow-card text-center animate-in fade-in duration-300">
+      <div
+        ref={successRef}
+        tabIndex={-1}
+        role="status"
+        className="rounded-2xl border border-success/30 bg-card p-8 text-center shadow-card focus:outline-none md:p-12"
+      >
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15 text-success">
-          <CheckCircle2 className="h-8 w-8" />
+          <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
         </div>
-        <h3 className="heading-display mt-5 text-3xl font-bold text-foreground">Table Reserved!</h3>
-        <p className="mt-2 text-muted-foreground">
-          We look forward to hosting you at Spice & Saffron.
+        <h2 className="heading-display mt-5 text-3xl text-foreground">Table requested</h2>
+        <p className="mx-auto mt-2 max-w-md text-muted-foreground">
+          We look forward to seeing you at Spice &amp; Saffron. Keep this reference to check your booking later.
         </p>
 
-        <div className="my-6 rounded-xl border border-border bg-muted/40 p-5 max-w-sm mx-auto">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Booking Reference</p>
-          <p className="heading-display mt-1 text-2xl font-bold tracking-widest text-primary">
-            {confirmedCode}
-          </p>
-          <div className="mt-3 flex justify-between border-t border-border pt-3 text-xs text-muted-foreground">
+        <div className="mx-auto my-6 max-w-sm rounded-xl border border-border bg-muted/40 p-5">
+          <p className="text-sm text-muted-foreground">Booking reference</p>
+          <p className="heading-display mt-1 text-2xl tracking-widest text-primary">{confirmedCode}</p>
+          <div className="mt-3 flex justify-between border-t border-border pt-3 text-sm text-muted-foreground">
             <span>{date}</span>
             <span>{timeSlot}</span>
-            <span>{guests} {guests === 1 ? "Guest" : "Guests"}</span>
+            <span>
+              {guests} {guests === 1 ? "guest" : "guests"}
+            </span>
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground max-w-md mx-auto">
-          A confirmation note has been recorded. If your plans change, please give us a quick ring at +91 98765 43210.
+        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+          If your plans change, please call the cafe as soon as you can.
         </p>
 
-        <div className="mt-8 flex justify-center gap-4">
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href="/menu"
-            className="rounded-full bg-primary px-6 py-2.5 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90"
+            className="rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Explore Today&apos;s Menu
+            View the menu
           </Link>
           <button
+            type="button"
             onClick={() => setConfirmedCode(null)}
-            className="rounded-full border border-border px-6 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+            className="rounded-full border border-border px-6 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
           >
-            Make Another Booking
+            Book another table
           </button>
         </div>
       </div>
@@ -114,44 +159,52 @@ export function ReservationForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-border bg-card p-6 md:p-10 shadow-card space-y-8">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      aria-busy={loading}
+      className="space-y-8 rounded-2xl border border-border bg-card p-6 shadow-card md:p-10"
+    >
       {error && (
-        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          <AlertCircle className="h-5 w-5 shrink-0" />
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          <AlertCircle className="h-5 w-5 shrink-0" aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Step 1: Party Size */}
-      <div>
-        <label className="flex items-center gap-2 text-sm font-medium text-foreground mb-3">
-          <Users className="h-4 w-4 text-primary" />
-          Number of Guests
-        </label>
+      <fieldset>
+        <legend className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+          <Users className="h-4 w-4 text-primary" aria-hidden="true" />
+          Number of guests
+        </legend>
         <div className="flex flex-wrap gap-2">
           {GUEST_OPTIONS.map((num) => (
             <button
               type="button"
               key={num}
+              aria-pressed={guests === num}
+              aria-label={`${num} ${num === 1 ? "guest" : "guests"}`}
               onClick={() => setGuests(num)}
-              className={`h-10 w-12 rounded-lg text-sm font-semibold transition-all ${
+              className={`h-11 w-12 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                 guests === num
-                  ? "bg-primary text-primary-foreground shadow-sm scale-105"
-                  : "border border-border bg-background text-muted-foreground hover:border-primary/50"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "border border-border bg-background text-foreground hover:border-primary/50"
               }`}
             >
               {num}
             </button>
           ))}
         </div>
-      </div>
+      </fieldset>
 
-      {/* Step 2: Date & Slot */}
       <div className="grid gap-6 sm:grid-cols-2">
         <div>
-          <label htmlFor="res-date" className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
-            <Calendar className="h-4 w-4 text-primary" />
-            Reservation Date
+          <label htmlFor="res-date" className={labelClass}>
+            <Calendar className="h-4 w-4 text-primary" aria-hidden="true" />
+            Date
           </label>
           <input
             id="res-date"
@@ -160,20 +213,23 @@ export function ReservationForm() {
             value={date}
             min={new Date().toISOString().split("T")[0]}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-invalid={!!fieldErrors.date}
+            aria-describedby={fieldErrors.date ? "res-date-error" : undefined}
+            className={inputClass}
           />
+          <FieldError id="res-date-error" message={fieldErrors.date} />
         </div>
 
         <div>
-          <label htmlFor="res-time" className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
-            <Clock className="h-4 w-4 text-primary" />
-            Preferred Time Slot
+          <label htmlFor="res-time" className={labelClass}>
+            <Clock className="h-4 w-4 text-primary" aria-hidden="true" />
+            Time
           </label>
           <select
             id="res-time"
             value={timeSlot}
             onChange={(e) => setTimeSlot(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className={inputClass}
           >
             {TIME_SLOTS.map((slot) => (
               <option key={slot} value={slot}>
@@ -184,70 +240,79 @@ export function ReservationForm() {
         </div>
       </div>
 
-      {/* Step 3: Contact Details */}
-      <div className="border-t border-border pt-6 space-y-4">
-        <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Lead Guest Information
-        </h4>
+      <div className="space-y-4 border-t border-border pt-6">
+        <h2 className="text-base font-semibold text-foreground">Your details</h2>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            <label htmlFor="res-name" className="text-xs font-medium text-muted-foreground mb-1 block">
-              Full Name *
+            <label htmlFor="res-name" className={labelClass}>
+              Full name
             </label>
             <input
               id="res-name"
               type="text"
               required
-              placeholder="e.g. Aditi Roy"
+              autoComplete="name"
+              placeholder="Aditi Roy"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-invalid={!!fieldErrors.name}
+              aria-describedby={fieldErrors.name ? "res-name-error" : undefined}
+              className={inputClass}
             />
+            <FieldError id="res-name-error" message={fieldErrors.name} />
           </div>
 
           <div>
-            <label htmlFor="res-email" className="text-xs font-medium text-muted-foreground mb-1 block">
-              Email Address *
+            <label htmlFor="res-email" className={labelClass}>
+              Email address
             </label>
             <input
               id="res-email"
               type="email"
               required
+              autoComplete="email"
               placeholder="aditi@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-invalid={!!fieldErrors.email}
+              aria-describedby={fieldErrors.email ? "res-email-error" : undefined}
+              className={inputClass}
             />
+            <FieldError id="res-email-error" message={fieldErrors.email} />
           </div>
 
           <div>
-            <label htmlFor="res-phone" className="text-xs font-medium text-muted-foreground mb-1 block">
-              Phone Number *
+            <label htmlFor="res-phone" className={labelClass}>
+              Phone number
             </label>
             <input
               id="res-phone"
               type="tel"
               required
+              autoComplete="tel"
               placeholder="+91 98765 43210"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-invalid={!!fieldErrors.phone}
+              aria-describedby={fieldErrors.phone ? "res-phone-error" : undefined}
+              className={inputClass}
             />
+            <FieldError id="res-phone-error" message={fieldErrors.phone} />
           </div>
         </div>
 
         <div>
-          <label htmlFor="res-special" className="text-xs font-medium text-muted-foreground mb-1 block">
-            Special Requests & Dietary Notes (Optional)
+          <label htmlFor="res-special" className={labelClass}>
+            Special requests <span className="font-normal text-muted-foreground">(optional)</span>
           </label>
           <textarea
             id="res-special"
-            rows={2}
-            placeholder="Anniversary celebration, high chair needed, mild spice requested..."
+            rows={3}
+            placeholder="Anniversary, high chair, mild spice"
             value={specialRequests}
             onChange={(e) => setSpecialRequests(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className={inputClass}
           />
         </div>
       </div>
@@ -255,9 +320,11 @@ export function ReservationForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 hover:shadow-lg disabled:opacity-50"
+        className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground shadow-md transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] disabled:opacity-60"
       >
-        {loading ? "Confirming Table..." : `Confirm Table for ${guests} ${guests === 1 ? "Guest" : "Guests"}`}
+        {loading
+          ? "Booking your table"
+          : `Book a table for ${guests} ${guests === 1 ? "guest" : "guests"}`}
       </button>
     </form>
   );

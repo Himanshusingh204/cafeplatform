@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   adminCreateTableAction,
   adminUpdateTableStatusAction,
@@ -24,6 +25,8 @@ import {
   Share2,
   Sparkles,
 } from "lucide-react";
+import { useConfirm } from "@/components/admin/confirm-dialog";
+import { Field, StatusMessage, controlClass, type FieldErrors } from "@/components/admin/form-field";
 
 export interface DiningTableItem {
   id: string;
@@ -49,14 +52,29 @@ export interface WaitlistEntryItem {
 interface FloorplanManagerProps {
   initialTables: DiningTableItem[];
   initialWaitlist: WaitlistEntryItem[];
+  /** Create and delete tables (MANAGE_SETTINGS). Status and waitlist stay open to all staff. */
+  canManageTables?: boolean;
 }
 
 export function FloorplanManager({
   initialTables,
   initialWaitlist,
+  canManageTables = true,
 }: FloorplanManagerProps) {
+  const router = useRouter();
   const [tables, setTables] = useState<DiningTableItem[]>(initialTables);
   const [waitlist, setWaitlist] = useState<WaitlistEntryItem[]>(initialWaitlist);
+  // Re-sync local lists when the server re-renders with fresh data (router.refresh()).
+  const [seenTables, setSeenTables] = useState(initialTables);
+  const [seenWaitlist, setSeenWaitlist] = useState(initialWaitlist);
+  if (seenTables !== initialTables) {
+    setSeenTables(initialTables);
+    setTables(initialTables);
+  }
+  if (seenWaitlist !== initialWaitlist) {
+    setSeenWaitlist(initialWaitlist);
+    setWaitlist(initialWaitlist);
+  }
   const [activeTab, setActiveTab] = useState<"floorplan" | "waitlist">("floorplan");
   const [selectedSection, setSelectedSection] = useState<string>("ALL");
   const [isAddTableOpen, setIsAddTableOpen] = useState(false);
@@ -64,6 +82,8 @@ export function FloorplanManager({
   const [qrModalTable, setQrModalTable] = useState<DiningTableItem | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isPending, startTransition] = useTransition();
 
   // Distinct sections
@@ -89,21 +109,36 @@ export function FloorplanManager({
     };
     const nextStatus = nextStatusMap[table.status];
 
+    setErrorMsg(null);
+    setNotice(null);
     setTables((prev) =>
       prev.map((t) => (t.id === table.id ? { ...t, status: nextStatus } : t))
     );
 
     startTransition(async () => {
-      await adminUpdateTableStatusAction(table.id, nextStatus);
+      const res = await adminUpdateTableStatusAction(table.id, nextStatus);
+      if (!res.ok) {
+        setTables((prev) => prev.map((t) => (t.id === table.id ? { ...t, status: table.status } : t)));
+        setErrorMsg(res.error || `Could not update table ${table.tableNumber}. The change was undone.`);
+      }
     });
   };
 
-  const handleDeleteTable = (id: string, tableNumber: string) => {
-    if (!confirm(`Delete Table ${tableNumber}?`)) return;
+  const handleDeleteTable = async (id: string, tableNumber: string) => {
+    if (!(await confirm({ title: `Delete table ${tableNumber}`, message: "The table and its position on the floor plan will be removed." }))) return;
 
+    const removed = tables.find((t) => t.id === id);
+    setErrorMsg(null);
+    setNotice(null);
     setTables((prev) => prev.filter((t) => t.id !== id));
     startTransition(async () => {
-      await adminDeleteTableAction(id);
+      const res = await adminDeleteTableAction(id);
+      if (res.ok) {
+        setNotice(`Table ${tableNumber} deleted.`);
+      } else {
+        if (removed) setTables((prev) => [...prev, removed]);
+        setErrorMsg(res.error || `Could not delete table ${tableNumber}. It was restored.`);
+      }
     });
   };
 
@@ -111,13 +146,19 @@ export function FloorplanManager({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
 
+    if (!String(fd.get("tableNumber") ?? "").trim()) {
+      setFieldErrors({ tableNumber: "Enter a table number or label." });
+      return;
+    }
+    setFieldErrors({});
     setErrorMsg(null);
     startTransition(async () => {
       const res = await adminCreateTableAction(fd);
       if (res.ok) {
         setIsAddTableOpen(false);
-        window.location.reload();
+        router.refresh();
       } else {
+        setFieldErrors(/table/i.test(res.error ?? "") ? { tableNumber: res.error ?? "" } : {});
         setErrorMsg(res.error || "Failed to create table");
       }
     });
@@ -127,12 +168,20 @@ export function FloorplanManager({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
 
+    const errors: FieldErrors = {};
+    if (!String(fd.get("customerName") ?? "").trim()) errors.customerName = "Enter the guest name.";
+    if (!String(fd.get("customerPhone") ?? "").trim()) errors.customerPhone = "Enter a phone number.";
+    const size = Number(fd.get("partySize"));
+    if (!(size >= 1 && size <= 20)) errors.partySize = "Party size must be between 1 and 20.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setErrorMsg(null);
     startTransition(async () => {
       const res = await adminAddToWaitlistAction(fd);
       if (res.ok) {
         setIsAddWaitlistOpen(false);
-        window.location.reload();
+        router.refresh();
       } else {
         setErrorMsg(res.error || "Failed to add to waitlist");
       }
@@ -140,43 +189,64 @@ export function FloorplanManager({
   };
 
   const handleNotifyWaitlist = (id: string) => {
+    const previous = waitlist.find((w) => w.id === id)?.status;
+    setErrorMsg(null);
     setWaitlist((prev) =>
       prev.map((w) => (w.id === id ? { ...w, status: "NOTIFIED" } : w))
     );
     startTransition(async () => {
-      await adminNotifyWaitlistAction(id);
+      const res = await adminNotifyWaitlistAction(id);
+      if (!res.ok) {
+        if (previous) setWaitlist((prev) => prev.map((w) => (w.id === id ? { ...w, status: previous } : w)));
+        setErrorMsg(res.error || "Could not notify the party. The change was undone.");
+      }
     });
   };
 
   const handleSeatWaitlist = (id: string) => {
+    const removed = waitlist.find((w) => w.id === id);
+    setErrorMsg(null);
     setWaitlist((prev) => prev.filter((w) => w.id !== id));
     startTransition(async () => {
-      await adminSeatWaitlistAction(id);
+      const res = await adminSeatWaitlistAction(id);
+      if (!res.ok) {
+        if (removed) setWaitlist((prev) => [...prev, removed]);
+        setErrorMsg(res.error || "Could not seat the party. They were put back in the queue.");
+      }
     });
   };
 
   const handleCancelWaitlist = (id: string) => {
+    const removed = waitlist.find((w) => w.id === id);
+    setErrorMsg(null);
     setWaitlist((prev) => prev.filter((w) => w.id !== id));
     startTransition(async () => {
-      await adminCancelWaitlistAction(id);
+      const res = await adminCancelWaitlistAction(id);
+      if (!res.ok) {
+        if (removed) setWaitlist((prev) => [...prev, removed]);
+        setErrorMsg(res.error || "Could not cancel the entry. It was restored.");
+      }
     });
   };
 
   const getTableColor = (status: TableStatus) => {
     switch (status) {
       case "AVAILABLE":
-        return "border-emerald-500/60 bg-emerald-500/10 text-emerald-400 hover:border-emerald-400";
+        return "border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400";
       case "OCCUPIED":
-        return "border-rose-500/60 bg-rose-500/10 text-rose-400 hover:border-rose-400";
+        return "border-rose-500/60 bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:border-rose-400";
       case "DIRTY":
-        return "border-amber-500/60 bg-amber-500/10 text-amber-400 hover:border-amber-400 animate-pulse";
+        return "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:border-amber-400 animate-pulse";
       case "RESERVED":
-        return "border-blue-500/60 bg-blue-500/10 text-blue-400 hover:border-blue-400";
+        return "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:border-blue-400";
     }
   };
 
+  const { confirm, dialog } = useConfirm();
+
   return (
     <div className="space-y-6">
+      {dialog}
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -188,10 +258,11 @@ export function FloorplanManager({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl bg-card border border-border p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-xl bg-card border border-border p-1" role="group" aria-label="Switch view">
             <button
               type="button"
+              aria-pressed={activeTab === "floorplan"}
               onClick={() => setActiveTab("floorplan")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === "floorplan"
@@ -203,6 +274,7 @@ export function FloorplanManager({
             </button>
             <button
               type="button"
+              aria-pressed={activeTab === "waitlist"}
               onClick={() => setActiveTab("waitlist")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 activeTab === "waitlist"
@@ -212,7 +284,7 @@ export function FloorplanManager({
             >
               <span>Waitlist Queue</span>
               {waitlist.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-destructive text-destructive-foreground font-bold">
                   {waitlist.length}
                 </span>
               )}
@@ -220,32 +292,38 @@ export function FloorplanManager({
           </div>
 
           {activeTab === "floorplan" ? (
+            canManageTables ? (
             <button
               type="button"
-              onClick={() => setIsAddTableOpen(true)}
+              onClick={() => {
+                setFieldErrors({});
+                setErrorMsg(null);
+                setIsAddTableOpen(true);
+              }}
               className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all shadow-sm"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus aria-hidden="true" className="w-3.5 h-3.5" />
               Add Table
             </button>
+            ) : null
           ) : (
             <button
               type="button"
-              onClick={() => setIsAddWaitlistOpen(true)}
+              onClick={() => {
+                setFieldErrors({});
+                setErrorMsg(null);
+                setIsAddWaitlistOpen(true);
+              }}
               className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all shadow-sm"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus aria-hidden="true" className="w-3.5 h-3.5" />
               Add Party
             </button>
           )}
         </div>
       </div>
 
-      {errorMsg && (
-        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium">
-          {errorMsg}
-        </div>
-      )}
+      {!isAddTableOpen && !isAddWaitlistOpen ? <StatusMessage ok={notice} error={errorMsg} /> : null}
 
       {/* KPI Counters */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -258,20 +336,20 @@ export function FloorplanManager({
         </div>
 
         <div className="p-4 rounded-2xl bg-card border border-emerald-500/30">
-          <div className="text-xs font-semibold text-emerald-500 uppercase">Available</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-0.5">{availableCount}</div>
+          <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase">Available</div>
+          <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-0.5">{availableCount}</div>
           <div className="text-[11px] text-muted-foreground mt-1">Ready for seating</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-card border border-rose-500/30">
-          <div className="text-xs font-semibold text-rose-500 uppercase">Occupied</div>
-          <div className="text-2xl font-bold text-rose-400 mt-0.5">{occupiedCount}</div>
+          <div className="text-xs font-semibold text-rose-700 dark:text-rose-300 uppercase">Occupied</div>
+          <div className="text-2xl font-bold text-rose-700 dark:text-rose-300 mt-0.5">{occupiedCount}</div>
           <div className="text-[11px] text-muted-foreground mt-1">Dining in progress</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-card border border-amber-500/30">
-          <div className="text-xs font-semibold text-amber-500 uppercase">Dirty / Needs Bussing</div>
-          <div className="text-2xl font-bold text-amber-400 mt-0.5">{dirtyCount}</div>
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase">Dirty / Needs Bussing</div>
+          <div className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-0.5">{dirtyCount}</div>
           <div className="text-[11px] text-muted-foreground mt-1">Tap to mark clean</div>
         </div>
       </div>
@@ -279,7 +357,7 @@ export function FloorplanManager({
       {activeTab === "floorplan" ? (
         <div className="space-y-4">
           {/* Section Filter */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Filter by section">
             <button
               type="button"
               onClick={() => setSelectedSection("ALL")}
@@ -308,7 +386,19 @@ export function FloorplanManager({
           </div>
 
           {/* Table Grid / Canvas */}
-          <div className="p-6 rounded-3xl bg-card border border-border shadow-inner min-h-[420px]">
+          <div className="p-4 sm:p-6 rounded-3xl bg-card border border-border shadow-inner min-h-[420px]">
+            {tables.length === 0 ? (
+              <div className="flex min-h-[340px] flex-col items-center justify-center text-center">
+                <p className="heading-display text-xl">No tables yet</p>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  {canManageTables
+                    ? "Select Add Table above to place your first table. Give it a label, seat count and section, then tap it on this plan to cycle its status."
+                    : "Ask an admin to add the first table. Once added, you can tap a table to cycle its status."}
+                </p>
+              </div>
+            ) : filteredTables.length === 0 ? (
+              <p className="py-16 text-center text-sm text-muted-foreground">No tables in this section.</p>
+            ) : null}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {filteredTables.map((table) => {
                 const colorClass = getTableColor(table.status);
@@ -333,28 +423,35 @@ export function FloorplanManager({
                           setQrModalTable(table);
                         }}
                         title="Generate Table QR Order Code"
-                        className="p-1 rounded bg-background/80 hover:bg-background text-foreground transition-colors"
+                        className="p-2 rounded bg-background/80 hover:bg-background text-foreground transition-colors"
                       >
-                        <QrCode className="w-3.5 h-3.5" />
+                        <QrCode aria-hidden="true" className="w-3.5 h-3.5" />
+                        <span className="sr-only">QR code for table {table.tableNumber}</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTable(table.id, table.tableNumber);
-                        }}
-                        className="p-1 rounded bg-background/80 hover:bg-rose-500/20 text-muted-foreground hover:text-rose-400 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {canManageTables ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTable(table.id, table.tableNumber);
+                          }}
+                          title="Delete table"
+                          className="p-2 rounded bg-background/80 hover:bg-destructive/15 text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <Trash2 aria-hidden="true" className="w-3 h-3" />
+                          <span className="sr-only">Delete table {table.tableNumber}</span>
+                        </button>
+                      ) : null}
                     </div>
 
                     {/* Table Center Info */}
                     <button
                       type="button"
                       onClick={() => handleStatusCycle(table)}
-                      className="text-center w-full py-1 cursor-pointer focus:outline-none"
+                      disabled={isPending}
+                      aria-label={`Table ${table.tableNumber}, ${table.status.toLowerCase()}. Activate to change status.`}
+                      className="text-center w-full py-1 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <div className="text-xl font-bold font-serif text-foreground">
                         {table.tableNumber}
@@ -383,7 +480,7 @@ export function FloorplanManager({
       ) : (
         /* Waitlist Tab */
         <div className="rounded-2xl bg-card border border-border overflow-hidden shadow-sm">
-          <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
+          <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-2 bg-muted/20">
             <div>
               <h2 className="text-base font-bold text-foreground">Active Hostess Waitlist</h2>
               <p className="text-xs text-muted-foreground">
@@ -398,7 +495,7 @@ export function FloorplanManager({
           <div className="divide-y divide-border">
             {waitlist.length === 0 ? (
               <div className="py-16 text-center text-muted-foreground text-xs">
-                No guests currently waiting. Walk-in guests can be added immediately.
+                No guests are waiting. Select Add Party above to add the first walk-in or phone-in guest to the queue.
               </div>
             ) : (
               waitlist.map((entry, idx) => (
@@ -411,13 +508,13 @@ export function FloorplanManager({
                       #{idx + 1}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-sm text-foreground">{entry.customerName}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-muted font-medium text-muted-foreground">
                           {entry.partySize} guests
                         </span>
                         {entry.status === "NOTIFIED" && (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-semibold flex items-center gap-1">
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1">
                             <Bell className="w-3 h-3" /> Notified
                           </span>
                         )}
@@ -425,10 +522,10 @@ export function FloorplanManager({
                       <div className="text-xs text-muted-foreground mt-0.5">
                         Phone: <strong className="text-foreground">{entry.customerPhone}</strong>
                         {entry.specialNotes && (
-                          <span className="ml-2 text-amber-400">({entry.specialNotes})</span>
+                          <span className="ml-2 text-amber-700 dark:text-amber-300">({entry.specialNotes})</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground mt-1">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" /> Est. Wait:{" "}
                           <strong className="text-foreground">{entry.estimatedWaitMinutes} mins</strong>
@@ -445,13 +542,13 @@ export function FloorplanManager({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center">
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-center">
                     {entry.status === "WAITING" && (
                       <button
                         type="button"
                         disabled={isPending}
                         onClick={() => handleNotifyWaitlist(entry.id)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-colors flex items-center gap-1.5"
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold disabled:opacity-60 bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5"
                       >
                         <Bell className="w-3 h-3" /> Notify Buzzer
                       </button>
@@ -461,7 +558,7 @@ export function FloorplanManager({
                       type="button"
                       disabled={isPending}
                       onClick={() => handleSeatWaitlist(entry.id)}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-success hover:bg-success/90 text-background transition-colors flex items-center gap-1.5 disabled:opacity-60"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" /> Seat Party
                     </button>
@@ -470,10 +567,11 @@ export function FloorplanManager({
                       type="button"
                       disabled={isPending}
                       onClick={() => handleCancelWaitlist(entry.id)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-60"
                       title="Cancel waitlist entry"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 aria-hidden="true" className="w-3.5 h-3.5" />
+                      <span className="sr-only">Cancel waitlist entry for {entry.customerName}</span>
                     </button>
                   </div>
                 </div>
@@ -485,8 +583,8 @@ export function FloorplanManager({
 
       {/* QR Code Modal */}
       {qrModalTable && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-card border border-border rounded-3xl shadow-2xl p-6 text-center space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onKeyDown={(e) => e.key === "Escape" && setQrModalTable(null)}>
+          <div role="dialog" aria-modal="true" aria-label={`QR code for table ${qrModalTable.tableNumber}`} className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-card border border-border rounded-3xl shadow-2xl p-6 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary mx-auto flex items-center justify-center">
               <QrCode className="w-6 h-6" />
             </div>
@@ -496,7 +594,7 @@ export function FloorplanManager({
                 Table {qrModalTable.tableNumber}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Section: {qrModalTable.section} • Capacity: {qrModalTable.capacity} Seats
+                Section: {qrModalTable.section} | Capacity: {qrModalTable.capacity} Seats
               </p>
             </div>
 
@@ -519,16 +617,20 @@ export function FloorplanManager({
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(
-                    `${window.location.origin}/menu?table=${encodeURIComponent(qrModalTable.tableNumber)}&mode=dine_in`
-                  );
-                  setCopiedLink(true);
-                  setTimeout(() => setCopiedLink(false), 2000);
+                  navigator.clipboard
+                    .writeText(
+                      `${window.location.origin}/menu?table=${encodeURIComponent(qrModalTable.tableNumber)}&mode=dine_in`
+                    )
+                    .then(() => {
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    })
+                    .catch(() => setErrorMsg("Could not copy the link. Select the URL above and copy it manually."));
                 }}
                 className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center justify-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                {copiedLink ? "Copied Link!" : "Copy Order URL"}
+                <span role="status">{copiedLink ? "Link copied" : "Copy Order URL"}</span>
               </button>
               <button
                 type="button"
@@ -544,61 +646,41 @@ export function FloorplanManager({
 
       {/* Add Table Modal */}
       {isAddTableOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="text-lg font-bold font-serif text-foreground">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onKeyDown={(e) => e.key === "Escape" && setIsAddTableOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="add-table-title" className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-xl p-6 space-y-4">
+            <h3 id="add-table-title" className="text-lg font-bold font-serif text-foreground">
               Add New Dining Table
             </h3>
 
-            <form onSubmit={handleCreateTableSubmit} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-foreground mb-1">Table Number / Label</label>
-                <input
-                  type="text"
-                  name="tableNumber"
-                  required
-                  placeholder="e.g. T-1, Patio-4, Booth-1"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+            <form onSubmit={handleCreateTableSubmit} noValidate className="space-y-3">
+              <Field id="table-number" label="Table number or label" required error={fieldErrors.tableNumber}>
+                {(p) => (
+                  <input {...p} type="text" name="tableNumber" autoFocus placeholder="e.g. T-1, Patio-4, Booth-1" className={controlClass} />
+                )}
+              </Field>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field id="table-capacity" label="Seat capacity" required error={fieldErrors.capacity}>
+                  {(p) => <input {...p} type="number" name="capacity" defaultValue="4" min="1" max="30" className={controlClass} />}
+                </Field>
+                <Field id="table-shape" label="Table shape">
+                  {(p) => (
+                    <select {...p} name="shape" defaultValue="RECTANGLE" className={controlClass}>
+                      <option value="RECTANGLE">Rectangle</option>
+                      <option value="ROUND">Round</option>
+                      <option value="BOOTH">Booth</option>
+                    </select>
+                  )}
+                </Field>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-foreground mb-1">Seat Capacity</label>
-                  <input
-                    type="number"
-                    name="capacity"
-                    defaultValue="4"
-                    min="1"
-                    max="30"
-                    required
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-foreground mb-1">Table Shape</label>
-                  <select
-                    name="shape"
-                    defaultValue="RECTANGLE"
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="RECTANGLE">Rectangle</option>
-                    <option value="ROUND">Round</option>
-                    <option value="BOOTH">Booth</option>
-                  </select>
-                </div>
-              </div>
+              <Field id="table-section" label="Section">
+                {(p) => (
+                  <input {...p} type="text" name="section" defaultValue="Main Dining" placeholder="e.g. Main Dining, Outdoor Patio" className={controlClass} />
+                )}
+              </Field>
 
-              <div>
-                <label className="block font-semibold text-foreground mb-1">Section</label>
-                <input
-                  type="text"
-                  name="section"
-                  defaultValue="Main Dining"
-                  placeholder="e.g. Main Dining, Outdoor Patio, Private Mezzanine"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
+              <StatusMessage error={errorMsg} />
 
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
@@ -611,9 +693,9 @@ export function FloorplanManager({
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
                 >
-                  Add Table to Floor
+                  {isPending ? "Saving..." : "Add Table to Floor"}
                 </button>
               </div>
             </form>
@@ -623,58 +705,31 @@ export function FloorplanManager({
 
       {/* Add Waitlist Modal */}
       {isAddWaitlistOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="text-lg font-bold font-serif text-foreground">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onKeyDown={(e) => e.key === "Escape" && setIsAddWaitlistOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="add-party-title" className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-xl p-6 space-y-4">
+            <h3 id="add-party-title" className="text-lg font-bold font-serif text-foreground">
               Add Party to Waitlist
             </h3>
 
-            <form onSubmit={handleAddWaitlistSubmit} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-foreground mb-1">Guest Name</label>
-                <input
-                  type="text"
-                  name="customerName"
-                  required
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+            <form onSubmit={handleAddWaitlistSubmit} noValidate className="space-y-3">
+              <Field id="party-name" label="Guest name" required error={fieldErrors.customerName}>
+                {(p) => <input {...p} type="text" name="customerName" autoFocus placeholder="e.g. Rahul Sharma" className={controlClass} />}
+              </Field>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field id="party-phone" label="Phone number" required error={fieldErrors.customerPhone}>
+                  {(p) => <input {...p} type="tel" name="customerPhone" placeholder="+91 98765 43210" className={controlClass} />}
+                </Field>
+                <Field id="party-size" label="Party size" required error={fieldErrors.partySize}>
+                  {(p) => <input {...p} type="number" name="partySize" defaultValue="2" min="1" max="20" className={controlClass} />}
+                </Field>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-foreground mb-1">Phone Number</label>
-                  <input
-                    type="tel"
-                    name="customerPhone"
-                    required
-                    placeholder="+91 98765 43210"
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-foreground mb-1">Party Size</label>
-                  <input
-                    type="number"
-                    name="partySize"
-                    defaultValue="2"
-                    min="1"
-                    max="20"
-                    required
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-              </div>
+              <Field id="party-notes" label="Special requests or seating notes">
+                {(p) => <input {...p} type="text" name="specialNotes" placeholder="e.g. High chair needed, prefers patio" className={controlClass} />}
+              </Field>
 
-              <div>
-                <label className="block font-semibold text-foreground mb-1">Special Requests / Seating Notes</label>
-                <input
-                  type="text"
-                  name="specialNotes"
-                  placeholder="e.g. High chair needed, prefers patio"
-                  className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
+              <StatusMessage error={errorMsg} />
 
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
@@ -687,9 +742,9 @@ export function FloorplanManager({
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
                 >
-                  Join Waitlist
+                  {isPending ? "Saving..." : "Join Waitlist"}
                 </button>
               </div>
             </form>

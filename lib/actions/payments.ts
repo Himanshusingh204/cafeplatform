@@ -18,6 +18,36 @@ export interface PaymentActionResult<T = unknown> {
 }
 
 /**
+ * The storefront checkout is anonymous, so there is no customer session to bind
+ * an order to. The compensating access model is:
+ *  - the order must exist and still be payable (not PAID, not cancelled/completed);
+ *  - it must be recent, i.e. created within the short window in which the
+ *    checkout page can still be open.
+ *
+ * Residual risk (accepted for now): there is no signed, order-scoped token, so
+ * an attacker who learns a fresh unpaid order id can ask us to create a gateway
+ * order for it (a nuisance/possible DB write), but cannot mark it PAID without a
+ * valid gateway HMAC signature, and cannot touch old or settled orders. Adding a
+ * signed order token minted by `submitTakeawayOrderAction` would close this.
+ */
+const ORDER_PAYMENT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/** Returns an error message when an order is no longer payable, else null. */
+function payableOrderError(order: {
+  paymentStatus: string;
+  orderStatus: string;
+  createdAt: Date;
+}): string | null {
+  if (order.paymentStatus === "PAID") return "Order is already paid.";
+  if (order.orderStatus === "CANCELLED") return "Order has been cancelled.";
+  if (order.orderStatus === "COMPLETED") return "Order is already complete.";
+  if (Date.now() - order.createdAt.getTime() > ORDER_PAYMENT_WINDOW_MS) {
+    return "The payment window for this order has expired.";
+  }
+  return null;
+}
+
+/**
  * Initializes a payment order with Razorpay/Stripe and updates the order with the gateway ID.
  */
 export async function initiateOrderPaymentAction(
@@ -32,8 +62,9 @@ export async function initiateOrderPaymentAction(
       return { ok: false, error: "Order not found." };
     }
 
-    if (order.paymentStatus === "PAID") {
-      return { ok: false, error: "Order is already paid." };
+    const payableError = payableOrderError(order);
+    if (payableError) {
+      return { ok: false, error: payableError };
     }
 
     const paymentResult = await createPaymentOrder({
@@ -80,6 +111,12 @@ export async function verifyClientPaymentAction(input: {
     // Idempotent: return success if already marked as paid
     if (order.paymentStatus === "PAID") {
       return { ok: true, data: { orderId: order.id } };
+    }
+
+    // A cancelled order must never be confirmed as paid, even with a valid
+    // signature (it would resurrect a refunded/cancelled sale).
+    if (order.orderStatus === "CANCELLED") {
+      return { ok: false, error: "Order has been cancelled." };
     }
 
     // Security Guard: An order cannot be verified as paid online without an active gateway order ID
