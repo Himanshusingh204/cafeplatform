@@ -8,8 +8,7 @@
         "http://localhost:3200/menu",
         "http://localhost:3200/reservations"
       ],
-      "numberOfRuns": 2,
-      "settings": { "preset": "mobile" }
+      "numberOfRuns": 2
     },
     "assert": {
       "assertions": {

@@ -12,7 +12,7 @@
     <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://www.postgresql.org/"><img alt="PostgreSQL 18" src="https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&amp;logoColor=white&amp;style=for-the-badge" /></a>
     <a href="https://nodejs.org/"><img alt="Node 20.19 or newer" src="https://img.shields.io/badge/Node-%E2%89%A520.19-339933?logo=nodedotjs&amp;logoColor=white&amp;style=for-the-badge" /></a>
-    <a href="https://vitest.dev/"><img alt="192 tests passing" src="https://img.shields.io/badge/tests-192%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
+    <a href="https://vitest.dev/"><img alt="390 tests passing" src="https://img.shields.io/badge/tests-390%20passing-brightgreen?logo=vitest&amp;logoColor=white&amp;style=for-the-badge" /></a>
   </p>
   <p>
     <a href="./LICENSE"><img alt="License: Proprietary (personal use only)" src="https://img.shields.io/badge/license-Proprietary%20%C2%B7%20personal%20use%20only-red?style=for-the-badge" /></a>
@@ -20,7 +20,19 @@
   </p>
 </div>
 
-[Overview](#overview) · [Features](#feature-set) · [Architecture](#architecture) · [Getting Started](#getting-started) · [API](#api-surface) · [Testing](#testing--quality) · [Docs](#documentation) · [Roadmap](#roadmap) · [Limitations](#current-limitations) · [License](#license)
+[Overview](#overview) · [Screenshots](#screenshots) · [Features](#feature-set) · [Architecture](#architecture) · [Getting Started](#getting-started) · [API](#api-surface) · [Testing](#testing--quality) · [Docs](#documentation) · [Roadmap](#roadmap) · [Limitations](#current-limitations) · [License](#license)
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Home page on desktop" width="720" />
+</p>
+
+| Menu | Reservations | Mobile |
+|---|---|---|
+| <img src="docs/screenshots/menu.png" alt="Menu page" width="320" /> | <img src="docs/screenshots/reservations.png" alt="Reservations page" width="320" /> | <img src="docs/screenshots/home-mobile.png" alt="Home page on a phone" width="160" /> |
 
 ---
 
@@ -395,7 +407,7 @@ Quality gates run locally and in CI on every push and pull request:
 ```bash
 npm run typecheck   # TypeScript, 0 errors
 npm run lint        # ESLint, clean
-npm test            # Vitest — 192 tests across 31 files
+npm test            # Vitest — 390 tests across 57 files
 npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 ```
 
@@ -405,7 +417,7 @@ npm run test:e2e    # Playwright — desktop Chromium + mobile Chrome
 | :--- | :--- |
 | `tsc --noEmit` | 0 errors |
 | ESLint | 0 warnings, 0 errors |
-| Vitest | **192 passing** across 31 files |
+| Vitest | **390 passing** across 57 files |
 | `next build` | Succeeds — 40 routes |
 | Security audit (CI) | Weekly `npm audit` job |
 

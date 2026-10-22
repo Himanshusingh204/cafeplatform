@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site polish and CI
+
+- Professional footer; new Help, Cookies, Refunds and Accessibility pages; sitemap, robots, manifest, PWA icons and `security.txt`.
+- Accessibility and SEO audited to 100 on Lighthouse mobile; images cached for a week.
+- Order inventory and loyalty steps are atomic and retried through the outbox.
+- CI: Lighthouse no longer passes the invalid `preset: mobile` (mobile is the default); CI sets `ALLOW_IN_MEMORY_STATE` because production start needs Redis otherwise.
+- README: screenshots added and test counts corrected.
+
 ### Hardening round (review follow-ups)
 
 - API-key `ipAllowlist` is now enforced; Express derives the caller address from `req.ip` (`TRUST_PROXY_HOPS`).

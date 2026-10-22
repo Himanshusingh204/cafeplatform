@@ -8,6 +8,8 @@ on:
 # Production builds prerender public pages, which resolve the default tenant.
 env:
   ALLOW_DEFAULT_TENANT: "true"
+  # CI runs one server instance, so the in-memory rate limiter is fine.
+  ALLOW_IN_MEMORY_STATE: "true"
 
 jobs:
   verify:
