@@ -14,7 +14,7 @@ test.describe("public visitor flows", () => {
     } else {
       const mainNav = page.getByRole("navigation", { name: "Main navigation" });
       await expect(mainNav).toBeVisible();
-      await expect(mainNav.getByRole("link", { name: "Gallery" })).toBeVisible();
+      await expect(mainNav.getByRole("link", { name: "Reservations" })).toBeVisible();
     }
   });
 

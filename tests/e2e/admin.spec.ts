@@ -17,7 +17,7 @@ test.describe("admin security", () => {
     await page.locator("#admin-password").fill("definitely-wrong");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.locator("form").getByRole("alert")).toContainText("Invalid credentials");
+    await expect(page.locator("form").getByText("Invalid email or password.")).toBeVisible();
     await expect(page).toHaveURL(/\/admin\/login$/);
   });
 

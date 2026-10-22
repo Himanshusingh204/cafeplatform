@@ -107,7 +107,6 @@ export function MenuView({ categories }: MenuViewProps) {
             <button
               type="button"
               onClick={() => setViewMode("cards")}
-              aria-label="Grid view with photography"
               title="Visual cards"
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -122,7 +121,6 @@ export function MenuView({ categories }: MenuViewProps) {
             <button
               type="button"
               onClick={() => setViewMode("list")}
-              aria-label="Classic list view"
               title="Classic menu list"
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
